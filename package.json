@@ -1,0 +1,19 @@
+{
+  "name": "ruta-b2b-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @ruta/api & npm run dev -w web",
+    "lint": "npm run lint -ws",
+    "format": "npm run format -ws"
+  },
+  "overrides": {
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.5",
+    "next": "14.2.5"
+  }
+}
+

@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16
+    container_name: ruta_postgres
+    environment:
+      POSTGRES_USER: ruta
+      POSTGRES_PASSWORD: ruta
+      POSTGRES_DB: ruta_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ruta_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ruta -d ruta_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  adminer:
+    image: adminer:4
+    container_name: ruta_adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  ruta_pgdata:
+
