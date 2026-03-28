@@ -1,9 +1,18 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { getApiBaseUrl } from "@/lib/api";
-import { docsSeed, ordersSeed, paymentsSeed, productsSeed, profileSeed } from "./mock-data";
+import { ACCESS_TOKEN_STORAGE_KEY } from "@/lib/auth/constants";
+import { apiLogout, getApiBaseUrl } from "@/lib/api";
 import { CartItem, ClientOrder, ClientProfile, DocumentItem, Payment, Product } from "./types";
+
+const emptyProfile: ClientProfile = {
+  businessName: "",
+  contactName: "",
+  phone: "",
+  email: "",
+  address: "",
+  weeklyReminder: true,
+};
 
 type ClientContextType = {
   products: Product[];
@@ -29,13 +38,11 @@ type ClientContextType = {
   authenticated: boolean;
   authError: string | null;
   login: (email: string, password: string) => Promise<void>;
-  demoLogin: () => void;
   logout: () => void;
 };
 
 const ClientContext = createContext<ClientContextType | null>(null);
 
-const TOKEN_KEY = "ruta_client_access_token";
 
 const toReadableError = (error: unknown) => {
   if (error instanceof TypeError) {
@@ -48,12 +55,12 @@ const toReadableError = (error: unknown) => {
 };
 
 export function ClientProvider({ children }: { children: ReactNode }) {
-  const [products, setProducts] = useState(productsSeed);
-  const [orders, setOrders] = useState<ClientOrder[]>(ordersSeed);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<ClientOrder[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [payments, setPayments] = useState(paymentsSeed);
-  const [documents, setDocuments] = useState(docsSeed);
-  const [profile, setProfile] = useState(profileSeed);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [profile, setProfile] = useState<ClientProfile>(emptyProfile);
   const [pendingBalance, setPendingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
@@ -61,10 +68,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState("CUSTOMER");
 
-  const canEditProfile = useMemo(
-    () => viewerRole === "CUSTOMER" || viewerRole === "ADMIN" || viewerRole === "SELLER",
-    [viewerRole],
-  );
+  const canEditProfile = useMemo(() => viewerRole === "CUSTOMER", [viewerRole]);
 
   const getOrderTotal = (order: ClientOrder) =>
     order.items.reduce((sum, it) => {
@@ -120,6 +124,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch(`${getApiBaseUrl()}/client/bootstrap`, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("No se pudo cargar portal cliente");
       const data = await res.json();
@@ -127,7 +132,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
       setOrders(data.orders ?? []);
       setPayments(data.payments ?? []);
       setDocuments(data.documents ?? []);
-      setProfile(data.profile ?? profileSeed);
+      setProfile(data.profile ?? emptyProfile);
       setPendingBalance(Number(data.pendingBalance ?? 0));
       setViewerRole(typeof data.viewerRole === "string" ? data.viewerRole : "CUSTOMER");
       setAuthenticated(true);
@@ -141,7 +146,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(TOKEN_KEY);
+    const stored = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
     if (!stored) return;
     setToken(stored);
     void bootstrap(stored);
@@ -160,7 +165,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       const accessToken = data.accessToken as string;
       setToken(accessToken);
-      window.localStorage.setItem(TOKEN_KEY, accessToken);
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
       await bootstrap(accessToken);
     } catch (e: any) {
       setAuthError(toReadableError(e));
@@ -169,34 +174,18 @@ export function ClientProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const demoLogin = () => {
-    const paidTotal = paymentsSeed.reduce((sum, p) => sum + p.amount, 0);
-    const due = ordersSeed.reduce((sum, o) => {
-      return (
-        sum +
-        o.items.reduce((acc, it) => {
-          const p = productsSeed.find((pr) => pr.id === it.productId);
-          return acc + (p?.price ?? 0) * it.qty;
-        }, 0)
-      );
-    }, 0);
-    setProducts(productsSeed);
-    setOrders(ordersSeed);
-    setPayments(paymentsSeed);
-    setDocuments(docsSeed);
-    setProfile(profileSeed);
-    setPendingBalance(Math.max(due - paidTotal, 0));
-    setAuthenticated(true);
-    setAuthError(null);
-    setToken(null);
-    setViewerRole("CUSTOMER");
-  };
-
   const logout = () => {
+    void apiLogout();
     setAuthenticated(false);
     setToken(null);
-    window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setCart([]);
+    setProducts([]);
+    setOrders([]);
+    setPayments([]);
+    setDocuments([]);
+    setProfile(emptyProfile);
+    setPendingBalance(0);
     setViewerRole("CUSTOMER");
   };
 
@@ -259,7 +248,6 @@ export function ClientProvider({ children }: { children: ReactNode }) {
     authenticated,
     authError,
     login,
-    demoLogin,
     logout,
   };
 

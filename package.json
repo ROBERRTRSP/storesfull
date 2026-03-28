@@ -6,10 +6,17 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @ruta/api & npm run dev -w web",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @ruta/api\" \"npm run dev -w web\"",
+    "dev:api": "npm run dev -w @ruta/api",
+    "dev:web": "npm run dev -w web",
+    "db:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "db:migrate": "npm run prisma:deploy -w @ruta/api",
     "build": "npm run build -w web",
     "lint": "npm run lint -ws",
     "format": "npm run format -ws"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   },
   "overrides": {
     "eslint": "8.57.1",

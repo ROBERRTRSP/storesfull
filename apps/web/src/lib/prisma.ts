@@ -1,4 +1,7 @@
 import { PrismaClient } from "@prisma/client";
+import { ensureDatabaseEnvLoaded } from "./server/load-env-for-prisma";
+
+ensureDatabaseEnvLoaded();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

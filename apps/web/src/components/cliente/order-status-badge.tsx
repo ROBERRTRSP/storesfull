@@ -5,6 +5,7 @@ const map: Record<OrderStatus, string> = {
   confirmado: "bg-blue-100 text-blue-700",
   pendiente_de_compra: "bg-amber-100 text-amber-700",
   en_compra: "bg-purple-100 text-purple-700",
+  comprado: "bg-cyan-100 text-cyan-800",
   en_ruta: "bg-indigo-100 text-indigo-700",
   entregado: "bg-emerald-100 text-emerald-700",
   parcial: "bg-orange-100 text-orange-700",

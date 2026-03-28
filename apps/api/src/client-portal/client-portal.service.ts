@@ -18,7 +18,7 @@ export class ClientPortalService {
       CLOSED_FOR_EDITING: 'pendiente_de_compra',
       PENDING_PURCHASE: 'pendiente_de_compra',
       IN_PURCHASE: 'en_compra',
-      PURCHASED: 'en_compra',
+      PURCHASED: 'comprado',
       IN_ROUTE: 'en_ruta',
       DELIVERED: 'entregado',
       PARTIAL: 'parcial',
@@ -30,21 +30,24 @@ export class ClientPortalService {
   }
 
   private async getCustomerForUser(userId: string, role: string) {
-    if (role !== 'CUSTOMER' && role !== 'ADMIN' && role !== 'SELLER') {
-      throw new ForbiddenException('Only customer portal users can access this resource');
+    if (role !== 'CUSTOMER') {
+      throw new ForbiddenException(
+        'El portal de cliente solo está disponible para cuentas con rol CLIENTE.',
+      );
     }
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const byEmail = await this.prisma.customer.findFirst({
-      where: { email: user.email },
+    const customer = await this.prisma.customer.findFirst({
+      where: { email: { equals: user.email, mode: 'insensitive' } },
       orderBy: { createdAt: 'asc' },
     });
-    if (byEmail) return byEmail;
-
-    const any = await this.prisma.customer.findFirst({ orderBy: { createdAt: 'asc' } });
-    if (any) return any;
-    throw new NotFoundException('No customer profile found');
+    if (!customer) {
+      throw new NotFoundException(
+        'No hay un perfil de cliente vinculado a tu correo. Contacta al administrador.',
+      );
+    }
+    return customer;
   }
 
   private orderTotal(items: { lineTotal: any }[]) {

@@ -6,7 +6,7 @@ import { ReactNode, useEffect } from "react";
 import { useAdmin } from "./admin-context";
 
 const mobileNav = [
-  { href: "/admin/dashboard", label: "Inicio", icon: "⌂" },
+  { href: "/admin", label: "Inicio", icon: "⌂" },
   { href: "/admin/pedidos", label: "Pedidos", icon: "▤" },
   { href: "/admin/clientes", label: "Clientes", icon: "◎" },
   { href: "/admin/alertas", label: "Alertas", icon: "!" },
@@ -14,7 +14,7 @@ const mobileNav = [
 ];
 
 const sideNav = [
-  { href: "/admin/dashboard", label: "Dashboard" },
+  { href: "/admin", label: "Dashboard" },
   { href: "/admin/clientes", label: "Clientes" },
   { href: "/admin/productos", label: "Productos" },
   { href: "/admin/pedidos", label: "Pedidos" },
@@ -38,7 +38,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loading && !authenticated) {
-      router.replace("/admin/login");
+      router.replace("/");
     }
   }, [loading, authenticated, router]);
 
@@ -59,7 +59,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   const isActive = (href: string) => {
-    if (href === "/admin/dashboard") return pathname === href;
+    if (href === "/admin") return pathname === "/admin" || pathname === "/admin/dashboard";
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
@@ -67,7 +67,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3">
-          <Link href="/admin/dashboard" className="font-semibold text-slate-900">
+          <Link href="/admin" className="font-semibold text-slate-900">
             <span className="text-indigo-600">Ruta</span> · Administración
           </Link>
           <div className="hidden min-w-0 flex-1 px-4 md:block">
@@ -116,8 +116,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <ul className="mx-auto grid max-w-lg grid-cols-5">
           {mobileNav.map((item) => {
             const active =
-              item.href === "/admin/dashboard"
-                ? pathname === "/admin/dashboard"
+              item.href === "/admin"
+                ? pathname === "/admin" || pathname === "/admin/dashboard"
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <li key={item.href}>

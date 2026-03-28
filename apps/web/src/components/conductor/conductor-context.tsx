@@ -9,20 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  amountPendingOrder,
-  buildPurchaseAggregates,
-  orderSaleTotal,
-} from "./aggregate";
-import {
-  DRIVER_TODAY,
-  driverCustomersSeed,
-  driverOrdersSeed,
-  driverProfileSeed,
-  incidentsSeed,
-  jornadaHistorySeed,
-  routeVisitStatusSeed,
-} from "./mock-data";
+import { amountPendingOrder, buildPurchaseAggregates, orderSaleTotal } from "./aggregate";
 import type {
   DriverCustomer,
   DriverIncident,
@@ -39,9 +26,24 @@ import type {
   PurchaseLineStatus,
   RouteVisitStatus,
 } from "./types";
-import { apiFetchMe, apiLogin, networkErrorMessage } from "@/lib/api";
+import { ACCESS_TOKEN_STORAGE_KEY } from "@/lib/auth/constants";
+import { apiFetchMe, apiLogin, apiLogout, getApiBaseUrl, networkErrorMessage, parseApiErrorMessage } from "@/lib/api";
+import { patchOrderDeliveryOutcome, postStaffPayment } from "@/lib/driver-api";
+import {
+  paymentMethodToApiString,
+  staffOrdersToDriverCustomers,
+  staffOrdersToDriverOrders,
+  staffPaymentsToDriverPayments,
+  type StaffOrderListRow,
+  type StaffPaymentListRow,
+} from "@/lib/driver-map";
 
-const TOKEN_KEY = "ruta_conductor_access_token";
+const emptyDriverProfile = (): DriverProfile => ({
+  name: "",
+  email: "",
+  phone: "",
+  vehicleLabel: "",
+});
 
 type ConductorContextType = {
   authenticated: boolean;
@@ -97,13 +99,14 @@ type ConductorContextType = {
   setRouteVisitStatus: (customerId: string, status: RouteVisitStatus) => void;
   confirmAllDeliveredForCustomer: (customerId: string) => void;
   syncOrderStatusFromLines: (orderId: string) => void;
+  refreshOperational: () => Promise<void>;
   applyPayment: (input: {
     customerId: string;
     orderIds: string[];
     amount: number;
     splits: DriverPaymentSplit[];
     note?: string;
-  }) => string | null;
+  }) => Promise<string | null>;
   generateReceiptForPayment: (paymentId: string) => DriverReceipt | null;
   addIncident: (input: {
     type: DriverIncident["type"];
@@ -169,21 +172,48 @@ function recomputeOrderDeliveryMeta(o: DriverOrder): DriverOrder {
 export function ConductorProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [profile, setProfile] = useState<DriverProfile>(driverProfileSeed);
-  const [customers] = useState(driverCustomersSeed);
-  const [orders, setOrders] = useState<DriverOrder[]>(() => driverOrdersSeed.map((o) => ({ ...o, lines: o.lines.map((l) => ({ ...l })) })));
-  const [routeVisitStatus, setRouteVisitStatusState] = useState<Record<string, RouteVisitStatus>>(() => ({ ...routeVisitStatusSeed }));
+  const [profile, setProfile] = useState<DriverProfile>(emptyDriverProfile);
+  const [customers, setCustomers] = useState<DriverCustomer[]>([]);
+  const [orders, setOrders] = useState<DriverOrder[]>([]);
+  const [routeVisitStatus, setRouteVisitStatusState] = useState<Record<string, RouteVisitStatus>>({});
   const [payments, setPayments] = useState<DriverPayment[]>([]);
   const [receipts, setReceipts] = useState<DriverReceipt[]>([]);
-  const [incidents, setIncidents] = useState<DriverIncident[]>(() => incidentsSeed.map((i) => ({ ...i })));
-  const [jornadaHistory, setJornadaHistory] = useState<JornadaCierre[]>(() => [...jornadaHistorySeed]);
+  const [incidents, setIncidents] = useState<DriverIncident[]>([]);
+  const [jornadaHistory, setJornadaHistory] = useState<JornadaCierre[]>([]);
   const [jornadaCerrada, setJornadaCerrada] = useState(false);
   const [finalJornadaNote, setFinalJornadaNote] = useState("");
 
-  const today = DRIVER_TODAY;
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const loadOperational = useCallback(async (accessToken: string, userFullName: string) => {
+    const base = getApiBaseUrl();
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const [orRes, payRes] = await Promise.all([
+      fetch(`${base}/staff/orders`, { headers, credentials: "include" }),
+      fetch(`${base}/staff/payments`, { headers, credentials: "include" }),
+    ]);
+    if (!orRes.ok) throw new Error(await parseApiErrorMessage(orRes));
+    if (!payRes.ok) throw new Error(await parseApiErrorMessage(payRes));
+    const orderRows = (await orRes.json()) as StaffOrderListRow[];
+    const payRows = (await payRes.json()) as StaffPaymentListRow[];
+    setOrders(staffOrdersToDriverOrders(orderRows));
+    setCustomers(staffOrdersToDriverCustomers(orderRows));
+    setPayments(staffPaymentsToDriverPayments(payRows, userFullName));
+  }, []);
+
+  const refreshOperational = useCallback(async () => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    if (!token) return;
+    try {
+      const user = await apiFetchMe(token);
+      await loadOperational(token, user.fullName);
+    } catch {
+      /* ignore */
+    }
+  }, [loadOperational]);
 
   useEffect(() => {
-    const token = window.localStorage.getItem(TOKEN_KEY);
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
     if (!token) {
       setLoading(false);
       return;
@@ -192,51 +222,72 @@ export function ConductorProvider({ children }: { children: ReactNode }) {
       try {
         const user = await apiFetchMe(token);
         if (user.role !== "DELIVERY") {
-          window.localStorage.removeItem(TOKEN_KEY);
+          window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
           setAuthenticated(false);
           return;
         }
         setProfile({
           name: user.fullName,
           email: user.email,
-          phone: driverProfileSeed.phone,
-          vehicleLabel: driverProfileSeed.vehicleLabel,
+          phone: "",
+          vehicleLabel: "",
         });
+        await loadOperational(token, user.fullName);
         setAuthenticated(true);
       } catch {
-        window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         setAuthenticated(false);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [loadOperational]);
 
-  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
-    if (!email?.trim() || !password) return "Introduce email y contraseña";
-    try {
-      const { accessToken, user } = await apiLogin(email.trim(), password);
-      if (user.role !== "DELIVERY") {
-        return "Esta cuenta no es de conductor / reparto.";
+  const login = useCallback(
+    async (email: string, password: string): Promise<string | null> => {
+      if (!email?.trim() || !password) return "Introduce email y contraseña";
+      try {
+        const { accessToken, user } = await apiLogin(email.trim(), password);
+        if (user.role !== "DELIVERY") {
+          return "Esta cuenta no es de conductor / reparto.";
+        }
+        setProfile({
+          name: user.fullName,
+          email: user.email,
+          phone: "",
+          vehicleLabel: "",
+        });
+        window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+        try {
+          await loadOperational(accessToken, user.fullName);
+        } catch (e) {
+          window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+          setProfile(emptyDriverProfile());
+          return networkErrorMessage(e);
+        }
+        setAuthenticated(true);
+        return null;
+      } catch (e) {
+        return networkErrorMessage(e);
       }
-      setProfile({
-        name: user.fullName,
-        email: user.email,
-        phone: driverProfileSeed.phone,
-        vehicleLabel: driverProfileSeed.vehicleLabel,
-      });
-      window.localStorage.setItem(TOKEN_KEY, accessToken);
-      setAuthenticated(true);
-      return null;
-    } catch (e) {
-      return networkErrorMessage(e);
-    }
-  }, []);
+    },
+    [loadOperational],
+  );
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(TOKEN_KEY);
+    void apiLogout();
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setAuthenticated(false);
-    setProfile(driverProfileSeed);
+    setProfile(emptyDriverProfile());
+    setCustomers([]);
+    setOrders([]);
+    setPayments([]);
+    setReceipts([]);
+    setRouteVisitStatusState({});
+    setIncidents([]);
+    setJornadaHistory([]);
+    setJornadaCerrada(false);
+    setFinalJornadaNote("");
   }, []);
 
   const getCustomer = useCallback((id: string) => customers.find((c) => c.id === id), [customers]);
@@ -332,66 +383,101 @@ export function ConductorProvider({ children }: { children: ReactNode }) {
     setRouteVisitStatusState((s) => ({ ...s, [customerId]: status }));
   }, []);
 
-  const confirmAllDeliveredForCustomer = useCallback((customerId: string) => {
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.customerId !== customerId) return o;
-        return recomputeOrderDeliveryMeta({
-          ...o,
-          lines: o.lines.map((l) => ({
-            ...l,
-            qtyDelivered: l.qtyPurchased,
-            deliveryStatus: l.qtyPurchased > 0 ? ("entregado" as const) : ("no_entregado" as const),
-          })),
+  const confirmAllDeliveredForCustomer = useCallback(
+    (customerId: string) => {
+      const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      setOrders((prev) => {
+        const updated = prev.map((o) => {
+          if (o.customerId !== customerId) return o;
+          return recomputeOrderDeliveryMeta({
+            ...o,
+            lines: o.lines.map((l) => ({
+              ...l,
+              qtyDelivered: l.qtyPurchased,
+              deliveryStatus: l.qtyPurchased > 0 ? ("entregado" as const) : ("no_entregado" as const),
+            })),
+          });
         });
-      }),
-    );
-  }, []);
+        if (token) {
+          void (async () => {
+            for (const o of updated) {
+              if (o.customerId !== customerId) continue;
+              if (o.status === "entregado") {
+                const r = await patchOrderDeliveryOutcome(token, o.id, "entregado");
+                if (!r.ok) console.error(r.error);
+              } else if (o.status === "entrega_parcial") {
+                const r = await patchOrderDeliveryOutcome(token, o.id, "parcial");
+                if (!r.ok) console.error(r.error);
+              }
+            }
+            await refreshOperational();
+          })();
+        }
+        return updated;
+      });
+    },
+    [refreshOperational],
+  );
 
   const syncOrderStatusFromLines = useCallback((orderId: string) => {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? recomputeOrderDeliveryMeta(recomputeOrderPurchaseMeta(o)) : o)));
   }, []);
 
-  /** Reparto proporcional al saldo pendiente de cada pedido */
+  /** Reparto proporcional al saldo pendiente de cada pedido; persiste vía API. */
   const applyPaymentProportional = useCallback(
-    (input: { customerId: string; orderIds: string[]; amount: number; splits: DriverPaymentSplit[]; note?: string }) => {
+    async (input: {
+      customerId: string;
+      orderIds: string[];
+      amount: number;
+      splits: DriverPaymentSplit[];
+      note?: string;
+    }): Promise<string | null> => {
       const sumSplits = input.splits.reduce((s, x) => s + x.amount, 0);
-      if (input.orderIds.length === 0 || input.amount <= 0 || Math.abs(sumSplits - input.amount) > 0.02) return null;
-      const paymentId = uid();
-      const at = new Date().toISOString();
-      setPayments((p) => [
-        ...p,
-        {
-          id: paymentId,
-          at,
-          customerId: input.customerId,
-          orderIds: input.orderIds,
-          amount: input.amount,
-          splits: input.splits,
-          note: input.note,
-          recordedBy: profile.name,
-        },
-      ]);
-      setOrders((prev) => {
-        const targets = prev.filter((o) => input.orderIds.includes(o.id));
-        const pendingByOrder = Object.fromEntries(targets.map((o) => [o.id, amountPendingOrder(o)]));
-        const totalPending = Object.values(pendingByOrder).reduce((a, b) => a + b, 0);
-        const ratio = totalPending > 0 ? Math.min(1, input.amount / totalPending) : 0;
-        return prev.map((o) => {
-          if (!input.orderIds.includes(o.id)) return o;
-          const pend = pendingByOrder[o.id] ?? 0;
-          const add = pend * ratio;
-          const paid = o.amountPaid + add;
-          const total = orderSaleTotal(o);
-          let paymentStatus: DriverOrder["paymentStatus"] = "pendiente";
-          if (paid >= total - 0.02) paymentStatus = "cobrado";
-          else if (paid > 0) paymentStatus = "parcial";
-          return { ...o, amountPaid: paid, paymentStatus };
-        });
-      });
-      return paymentId;
+      if (input.orderIds.length === 0 || input.amount <= 0 || Math.abs(sumSplits - input.amount) > 0.02) {
+        return null;
+      }
+      const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      if (!token) return null;
+
+      const targets = orders.filter((o) => input.orderIds.includes(o.id));
+      const pendingByOrder = Object.fromEntries(targets.map((o) => [o.id, amountPendingOrder(o)]));
+      const totalPending = Object.values(pendingByOrder).reduce((a, b) => a + b, 0);
+      if (totalPending <= 0) return null;
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      let firstPaymentId: string | null = null;
+
+      for (const oid of input.orderIds) {
+        const pend = pendingByOrder[oid] ?? 0;
+        if (pend <= 0) continue;
+        const target = Math.min(pend, round2((input.amount * pend) / totalPending));
+        if (target < 0.01) continue;
+        let assigned = 0;
+        for (let i = 0; i < input.splits.length; i++) {
+          const sp = input.splits[i];
+          const isLast = i === input.splits.length - 1;
+          const part = isLast ? round2(target - assigned) : round2(target * (sp.amount / input.amount));
+          if (part < 0.01) continue;
+          const r = await postStaffPayment(token, {
+            orderId: oid,
+            amount: part,
+            method: paymentMethodToApiString(sp.method),
+            notes: input.note,
+          });
+          if (!r.ok) {
+            console.error(r.error);
+            await refreshOperational();
+            return null;
+          }
+          if (r.id && !firstPaymentId) firstPaymentId = r.id;
+          assigned += part;
+        }
+      }
+
+      await refreshOperational();
+      return firstPaymentId;
     },
-    [profile.name],
+    [orders, refreshOperational],
   );
 
   const generateReceiptForPayment = useCallback(
@@ -569,6 +655,7 @@ export function ConductorProvider({ children }: { children: ReactNode }) {
     setRouteVisitStatus,
     confirmAllDeliveredForCustomer,
     syncOrderStatusFromLines,
+    refreshOperational,
     applyPayment: applyPaymentProportional,
     generateReceiptForPayment,
     addIncident,

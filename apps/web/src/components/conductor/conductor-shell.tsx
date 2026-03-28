@@ -6,26 +6,26 @@ import { ReactNode, useEffect } from "react";
 import { useConductor } from "./conductor-context";
 
 const mobileNav: { href: string; label: string; icon: string }[] = [
-  { href: "/conductor/dashboard", label: "Inicio", icon: "⌂" },
-  { href: "/conductor/compras", label: "Compras", icon: "☰" },
-  { href: "/conductor/ruta", label: "Ruta", icon: "→" },
-  { href: "/conductor/cobros", label: "Cobros", icon: "$" },
-  { href: "/conductor/resumen", label: "Resumen", icon: "✓" },
+  { href: "/driver", label: "Inicio", icon: "⌂" },
+  { href: "/driver/compras", label: "Compras", icon: "☰" },
+  { href: "/driver/ruta", label: "Ruta", icon: "→" },
+  { href: "/driver/cobros", label: "Cobros", icon: "$" },
+  { href: "/driver/resumen", label: "Resumen", icon: "✓" },
 ];
 
 const sideNav: { href: string; label: string }[] = [
-  { href: "/conductor/dashboard", label: "Dashboard" },
-  { href: "/conductor/compras", label: "Lista de compra" },
-  { href: "/conductor/compras/vinculados", label: "Pedidos vinculados" },
-  { href: "/conductor/compras/en-vivo", label: "Compra en vivo" },
-  { href: "/conductor/ruta", label: "Ruta del día" },
-  { href: "/conductor/cobros", label: "Cobros" },
-  { href: "/conductor/cobros/historial", label: "Historial cobros" },
-  { href: "/conductor/recibos", label: "Recibos" },
-  { href: "/conductor/incidencias", label: "Incidencias" },
-  { href: "/conductor/resumen", label: "Cierre de jornada" },
-  { href: "/conductor/historial", label: "Historial" },
-  { href: "/conductor/perfil", label: "Perfil" },
+  { href: "/driver", label: "Dashboard" },
+  { href: "/driver/compras", label: "Lista de compra" },
+  { href: "/driver/compras/vinculados", label: "Pedidos vinculados" },
+  { href: "/driver/compras/en-vivo", label: "Compra en vivo" },
+  { href: "/driver/ruta", label: "Ruta del día" },
+  { href: "/driver/cobros", label: "Cobros" },
+  { href: "/driver/cobros/historial", label: "Historial cobros" },
+  { href: "/driver/recibos", label: "Recibos" },
+  { href: "/driver/incidencias", label: "Incidencias" },
+  { href: "/driver/resumen", label: "Cierre de jornada" },
+  { href: "/driver/historial", label: "Historial" },
+  { href: "/driver/perfil", label: "Perfil" },
 ];
 
 export function ConductorShell({ children }: { children: ReactNode }) {
@@ -35,7 +35,7 @@ export function ConductorShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loading && !authenticated) {
-      router.replace("/conductor/login");
+      router.replace("/");
     }
   }, [loading, authenticated, router]);
 
@@ -56,17 +56,17 @@ export function ConductorShell({ children }: { children: ReactNode }) {
   }
 
   const isActive = (href: string) => {
-    if (href === "/conductor/dashboard") return pathname === href;
-    if (href === "/conductor/compras") {
+    if (href === "/driver") return pathname === "/driver" || pathname === "/driver/dashboard";
+    if (href === "/driver/compras") {
       return (
         pathname === href ||
-        (pathname.startsWith("/conductor/compras/") &&
+        (pathname.startsWith("/driver/compras/") &&
           !pathname.includes("/vinculados") &&
           !pathname.includes("/en-vivo"))
       );
     }
-    if (href === "/conductor/cobros") {
-      return pathname === href || pathname.startsWith("/conductor/cobros/");
+    if (href === "/driver/cobros") {
+      return pathname === href || pathname.startsWith("/driver/cobros/");
     }
     return pathname === href || pathname.startsWith(`${href}/`);
   };
@@ -75,12 +75,12 @@ export function ConductorShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-3 sm:px-4">
-          <Link href="/conductor/dashboard" className="min-w-0 shrink font-semibold text-indigo-900">
+          <Link href="/driver" className="min-w-0 shrink font-semibold text-indigo-900">
             <span className="block truncate text-sm sm:text-base">Ruta · Conductor</span>
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <Link
-              href="/conductor/compras/en-vivo"
+              href="/driver/compras/en-vivo"
               className="hidden rounded-full bg-indigo-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 sm:inline-flex sm:text-sm"
             >
               Compra rápida
@@ -120,8 +120,8 @@ export function ConductorShell({ children }: { children: ReactNode }) {
               <Link
                 href={item.href}
                 className={`flex flex-col items-center py-2 text-[10px] ${
-                  (item.href === "/conductor/dashboard"
-                    ? pathname === "/conductor/dashboard"
+                  (item.href === "/driver"
+                    ? pathname === "/driver" || pathname === "/driver/dashboard"
                     : pathname === item.href || pathname.startsWith(`${item.href}/`))
                     ? "font-semibold text-indigo-800"
                     : "text-slate-500"

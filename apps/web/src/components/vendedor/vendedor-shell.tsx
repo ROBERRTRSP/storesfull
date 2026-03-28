@@ -7,7 +7,7 @@ import { LogoutConfirmDialog } from "./logout-confirm-dialog";
 import { useSeller } from "./seller-context";
 
 const mobileNav: { href: string; label: string; icon: string; title?: string }[] = [
-  { href: "/vendedor/dashboard", label: "Inicio", icon: "⌂" },
+  { href: "/vendedor", label: "Inicio", icon: "⌂" },
   { href: "/vendedor/clientes", label: "Clientes", icon: "◎" },
   { href: "/vendedor/ruta", label: "Ruta", icon: "→" },
   { href: "/vendedor/oportunidades", label: "Oportun.", icon: "★", title: "Oportunidades" },
@@ -16,7 +16,7 @@ const mobileNav: { href: string; label: string; icon: string; title?: string }[]
 ];
 
 const sideNav = [
-  { href: "/vendedor/dashboard", label: "Dashboard" },
+  { href: "/vendedor", label: "Dashboard" },
   { href: "/vendedor/clientes", label: "Clientes" },
   { href: "/vendedor/ruta", label: "Ruta del día" },
   { href: "/vendedor/oportunidades", label: "Oportunidades" },
@@ -39,7 +39,7 @@ export function VendedorShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loading && !authenticated) {
-      router.replace("/vendedor/login");
+      router.replace("/");
     }
   }, [loading, authenticated, router]);
 
@@ -60,7 +60,7 @@ export function VendedorShell({ children }: { children: ReactNode }) {
   }
 
   const isActive = (href: string) => {
-    if (href === "/vendedor/dashboard") return pathname === href;
+    if (href === "/vendedor") return pathname === "/vendedor" || pathname === "/vendedor/dashboard";
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
@@ -75,7 +75,7 @@ export function VendedorShell({ children }: { children: ReactNode }) {
       />
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-          <Link href="/vendedor/dashboard" className="font-semibold text-emerald-800">
+          <Link href="/vendedor" className="font-semibold text-emerald-800">
             Ruta · Vendedor
           </Link>
           <div className="flex items-center gap-2">
@@ -121,8 +121,8 @@ export function VendedorShell({ children }: { children: ReactNode }) {
                 href={item.href}
                 title={item.title}
                 className={`flex flex-col items-center py-2 text-[9px] leading-tight ${
-                  (item.href === "/vendedor/dashboard"
-                    ? pathname === "/vendedor/dashboard"
+                  (item.href === "/vendedor"
+                    ? pathname === "/vendedor" || pathname === "/vendedor/dashboard"
                     : pathname === item.href || pathname.startsWith(`${item.href}/`))
                     ? "font-semibold text-emerald-800"
                     : "text-slate-500"

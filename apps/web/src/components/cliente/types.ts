@@ -3,6 +3,7 @@ export type OrderStatus =
   | "confirmado"
   | "pendiente_de_compra"
   | "en_compra"
+  | "comprado"
   | "en_ruta"
   | "entregado"
   | "parcial"

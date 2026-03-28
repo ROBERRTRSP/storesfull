@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import * as argon2 from 'argon2';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -19,62 +19,41 @@ async function main() {
     });
   }
 
-  const adminEmail = 'admin@demo.local';
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
   const customerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'CUSTOMER' } });
-  const exists = await prisma.user.findUnique({ where: { email: adminEmail } });
-  if (!exists) {
-    await prisma.user.create({
-      data: {
-        email: adminEmail,
-        fullName: 'Admin Demo',
-        passwordHash: await argon2.hash('Admin1234'),
-        roleId: adminRole.id,
-      },
-    });
-  }
-
-  const customerEmail = 'customer@demo.local';
-  const customerUser = await prisma.user.findUnique({ where: { email: customerEmail } });
-  if (!customerUser) {
-    await prisma.user.create({
-      data: {
-        email: customerEmail,
-        fullName: 'Cliente Demo',
-        passwordHash: await argon2.hash('Customer1234'),
-        roleId: customerRole.id,
-      },
-    });
-  }
-
   const sellerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SELLER' } });
   const deliveryRole = await prisma.role.findUniqueOrThrow({ where: { code: 'DELIVERY' } });
-  const sellerEmail = 'seller@demo.local';
-  if (!(await prisma.user.findUnique({ where: { email: sellerEmail } }))) {
-    await prisma.user.create({
-      data: {
-        email: sellerEmail,
-        fullName: 'Vendedor Demo',
-        passwordHash: await argon2.hash('Seller1234'),
-        roleId: sellerRole.id,
-      },
-    });
-  }
-  const driverEmail = 'driver@demo.local';
-  if (!(await prisma.user.findUnique({ where: { email: driverEmail } }))) {
-    await prisma.user.create({
-      data: {
-        email: driverEmail,
-        fullName: 'Conductor Demo',
-        passwordHash: await argon2.hash('Driver1234'),
-        roleId: deliveryRole.id,
-      },
+
+  /** Siempre actualiza el hash para que coincida con el README tras migraciones Argon2 → bcrypt. */
+  async function seedDemoUser(
+    email: string,
+    fullName: string,
+    plainPassword: string,
+    roleId: string,
+  ) {
+    const passwordHash = await bcrypt.hash(plainPassword, 12);
+    await prisma.user.upsert({
+      where: { email },
+      update: { passwordHash, fullName, roleId, status: 'ACTIVE' },
+      create: { email, fullName, passwordHash, roleId },
     });
   }
 
-  const customer = await prisma.customer.findFirst({ where: { email: customerEmail } });
+  const adminEmail = 'admin@demo.local';
+  await seedDemoUser(adminEmail, 'Admin Demo', 'Admin1234', adminRole.id);
+
+  const customerEmail = 'customer@demo.local';
+  await seedDemoUser(customerEmail, 'Cliente Demo', 'Customer1234', customerRole.id);
+
+  const sellerEmail = 'seller@demo.local';
+  await seedDemoUser(sellerEmail, 'Vendedor Demo', 'Seller1234', sellerRole.id);
+
+  const driverEmail = 'driver@demo.local';
+  await seedDemoUser(driverEmail, 'Conductor Demo', 'Driver1234', deliveryRole.id);
+
+  let customer = await prisma.customer.findFirst({ where: { email: customerEmail } });
   if (!customer) {
-    await prisma.customer.create({
+    customer = await prisma.customer.create({
       data: {
         businessName: 'Bodega La 9',
         contactName: 'Carlos Perez',
@@ -83,6 +62,17 @@ async function main() {
         address: 'Miami, FL',
         notes: '[weekly_reminder=true]',
       },
+    });
+  }
+
+  const sellerUser = await prisma.user.findUnique({ where: { email: sellerEmail } });
+  if (sellerUser && customer) {
+    await prisma.customerAssignment.upsert({
+      where: {
+        customerId_sellerId: { customerId: customer.id, sellerId: sellerUser.id },
+      },
+      update: {},
+      create: { customerId: customer.id, sellerId: sellerUser.id },
     });
   }
 

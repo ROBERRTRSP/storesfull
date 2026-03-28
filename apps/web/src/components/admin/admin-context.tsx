@@ -9,17 +9,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  adminAlertsSeed,
-  adminAuditSeed,
-  adminDeliveriesSeed,
-  adminExpensesSeed,
-  adminOrdersSeed,
-  adminPaymentsSeed,
-  adminPurchasesSeed,
-  adminUsersSeed,
-  dashboardKpisSeed,
-} from "./mock-data";
 import type {
   AdminAlert,
   AdminAuditEntry,
@@ -33,9 +22,16 @@ import type {
   AdminUser,
   AlertState,
 } from "./types";
-import { apiFetchMe, apiLogin, getApiBaseUrl, networkErrorMessage, parseApiErrorMessage } from "@/lib/api";
-
-const TOKEN_KEY = "ruta_admin_access_token";
+import { ACCESS_TOKEN_STORAGE_KEY } from "@/lib/auth/constants";
+import {
+  apiFetchMe,
+  apiLogin,
+  apiLogout,
+  getApiBaseUrl,
+  networkErrorMessage,
+  parseApiErrorMessage,
+} from "@/lib/api";
+import { deriveAdminAlerts, deriveAdminKpis, type AdminKpis } from "@/lib/admin-kpis";
 
 type CatalogRow = {
   id: string;
@@ -64,6 +60,28 @@ type CustomerRow = {
   status?: string;
 };
 
+type StaffOrderRow = {
+  id: string;
+  number: string;
+  customerId: string;
+  customerName: string;
+  createdBy: string;
+  sellerName: string;
+  date: string;
+  total: number;
+  status: AdminOrder["status"];
+};
+
+type StaffPaymentRow = {
+  id: string;
+  date: string;
+  customerName: string;
+  amount: number;
+  method: string;
+  orderRef?: string;
+  recordedBy: string;
+};
+
 function mapProductToAdmin(p: CatalogRow): AdminProduct {
   const tags = [
     ...(p.tags ?? []),
@@ -73,7 +91,7 @@ function mapProductToAdmin(p: CatalogRow): AdminProduct {
   return {
     id: p.id,
     name: p.name,
-    imageUrl: p.imageUrl || "https://placehold.co/120x120/e2e8f0/64748b?text=Prod",
+    imageUrl: p.imageUrl?.trim() ? p.imageUrl : "",
     department: p.category,
     category: p.category,
     sku: String(p.sku ?? p.id),
@@ -102,30 +120,72 @@ function mapCustomerToAdmin(c: CustomerRow): AdminCustomer {
   };
 }
 
-type AdminContextType = {
-  authenticated: boolean;
-  loading: boolean;
-  /** null si éxito; mensaje de error si falla */
-  login: (email: string, password: string) => Promise<string | null>;
-  logout: () => void;
-  kpis: typeof dashboardKpisSeed;
-  customers: AdminCustomer[];
-  products: AdminProduct[];
-  orders: AdminOrder[];
+type CustomerMetricPayload = {
+  customerId: string;
+  balancePending: number;
+  lastPurchase: string | null;
+  sellerName: string;
+};
+
+function mergeCustomerMetrics(customers: AdminCustomer[], metrics: CustomerMetricPayload[]): AdminCustomer[] {
+  const m = new Map(metrics.map((x) => [x.customerId, x]));
+  return customers.map((c) => {
+    const mm = m.get(c.id);
+    if (!mm) return c;
+    return {
+      ...c,
+      balancePending: mm.balancePending,
+      lastPurchase: mm.lastPurchase,
+      sellerName: mm.sellerName || c.sellerName,
+    };
+  });
+}
+
+type AdminSnapshotResponse = {
+  kpis: AdminKpis;
+  customerMetrics: CustomerMetricPayload[];
   purchases: AdminPurchase[];
   deliveries: AdminDelivery[];
-  payments: AdminPayment[];
   expenses: AdminExpense[];
   users: AdminUser[];
   audit: AdminAuditEntry[];
-  alerts: AdminAlert[];
-  setAlertState: (id: string, state: AlertState) => void;
-  getCustomer: (id: string) => AdminCustomer | undefined;
-  getOrdersForCustomer: (customerId: string) => AdminOrder[];
-  getOrder: (id: string) => AdminOrder | undefined;
 };
 
-const AdminContext = createContext<AdminContextType | null>(null);
+async function loadAdminSnapshot(token: string): Promise<AdminSnapshotResponse> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/snapshot`, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await parseApiErrorMessage(res));
+  return res.json() as Promise<AdminSnapshotResponse>;
+}
+
+function mapStaffOrderRow(row: StaffOrderRow): AdminOrder {
+  return {
+    id: row.id,
+    number: row.number,
+    customerId: row.customerId,
+    customerName: row.customerName,
+    createdBy: row.createdBy,
+    sellerName: row.sellerName,
+    date: row.date,
+    total: row.total,
+    status: row.status,
+  };
+}
+
+function mapStaffPaymentRow(p: StaffPaymentRow): AdminPayment {
+  return {
+    id: p.id,
+    date: p.date,
+    customerName: p.customerName,
+    amount: p.amount,
+    method: p.method,
+    orderRef: p.orderRef,
+    recordedBy: p.recordedBy,
+  };
+}
 
 async function loadAdminCatalog(token: string): Promise<{ products: AdminProduct[]; customers: AdminCustomer[] }> {
   const base = getApiBaseUrl();
@@ -144,22 +204,107 @@ async function loadAdminCatalog(token: string): Promise<{ products: AdminProduct
   };
 }
 
+async function loadStaffOperational(token: string): Promise<{
+  orders: AdminOrder[];
+  payments: AdminPayment[];
+}> {
+  const base = getApiBaseUrl();
+  const headers = { Authorization: `Bearer ${token}` };
+  const [orRes, payRes] = await Promise.all([
+    fetch(`${base}/staff/orders`, { headers }),
+    fetch(`${base}/staff/payments`, { headers }),
+  ]);
+  if (!orRes.ok) throw new Error(await parseApiErrorMessage(orRes));
+  if (!payRes.ok) throw new Error(await parseApiErrorMessage(payRes));
+  const orderRows = (await orRes.json()) as StaffOrderRow[];
+  const payRows = (await payRes.json()) as StaffPaymentRow[];
+  return {
+    orders: orderRows.map(mapStaffOrderRow),
+    payments: payRows.map(mapStaffPaymentRow),
+  };
+}
+
+type AdminContextType = {
+  authenticated: boolean;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<string | null>;
+  logout: () => void;
+  staffFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  refreshOperational: () => Promise<void>;
+  kpis: AdminKpis;
+  customers: AdminCustomer[];
+  products: AdminProduct[];
+  orders: AdminOrder[];
+  purchases: AdminPurchase[];
+  deliveries: AdminDelivery[];
+  payments: AdminPayment[];
+  expenses: AdminExpense[];
+  users: AdminUser[];
+  audit: AdminAuditEntry[];
+  alerts: AdminAlert[];
+  setAlertState: (id: string, state: AlertState) => void;
+  getCustomer: (id: string) => AdminCustomer | undefined;
+  getOrdersForCustomer: (customerId: string) => AdminOrder[];
+  getOrder: (id: string) => AdminOrder | undefined;
+};
+
+const AdminContext = createContext<AdminContextType | null>(null);
+
 export function AdminProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [customers, setCustomers] = useState<AdminCustomer[]>([]);
   const [products, setProducts] = useState<AdminProduct[]>([]);
-  const [orders] = useState(adminOrdersSeed);
-  const [purchases] = useState(adminPurchasesSeed);
-  const [deliveries] = useState(adminDeliveriesSeed);
-  const [payments] = useState(adminPaymentsSeed);
-  const [expenses] = useState(adminExpensesSeed);
-  const [users] = useState(adminUsersSeed);
-  const [audit] = useState(adminAuditSeed);
-  const [alerts, setAlerts] = useState(adminAlertsSeed);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [purchases, setPurchases] = useState<AdminPurchase[]>([]);
+  const [deliveries, setDeliveries] = useState<AdminDelivery[]>([]);
+  const [expenses, setExpenses] = useState<AdminExpense[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [audit, setAudit] = useState<AdminAuditEntry[]>([]);
+  const [kpis, setKpis] = useState<AdminKpis>(() => deriveAdminKpis([], [], []));
+  const [alertOverrides, setAlertOverrides] = useState<Record<string, AlertState>>({});
+
+  const generatedAlerts = useMemo(() => deriveAdminAlerts(orders, customers), [orders, customers]);
+  const alerts = useMemo(
+    () => generatedAlerts.map((a) => ({ ...a, state: alertOverrides[a.id] ?? a.state })),
+    [generatedAlerts, alertOverrides],
+  );
+
+  const staffFetch = useCallback(async (path: string, init?: RequestInit) => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    if (!token) throw new Error("Sin sesión");
+    const base = getApiBaseUrl();
+    const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    if (init?.body && typeof init.body === "string" && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    return fetch(url, { ...init, headers });
+  }, []);
+
+  const refreshOperational = useCallback(async () => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    if (!token) return;
+    try {
+      const [op, snap] = await Promise.all([loadStaffOperational(token), loadAdminSnapshot(token)]);
+      setOrders(op.orders);
+      setPayments(op.payments);
+      setKpis(snap.kpis);
+      setPurchases(snap.purchases);
+      setDeliveries(snap.deliveries);
+      setExpenses(snap.expenses);
+      setUsers(snap.users);
+      setAudit(snap.audit);
+      setCustomers((prev) => mergeCustomerMetrics(prev, snap.customerMetrics));
+    } catch {
+      /* mantener datos previos */
+    }
+  }, []);
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) : null;
     if (!token) {
       setLoading(false);
       return;
@@ -168,16 +313,28 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       try {
         const user = await apiFetchMe(token);
         if (user.role !== "ADMIN") {
-          window.localStorage.removeItem(TOKEN_KEY);
+          window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
           setAuthenticated(false);
           return;
         }
-        const data = await loadAdminCatalog(token);
+        const [data, op, snap] = await Promise.all([
+          loadAdminCatalog(token),
+          loadStaffOperational(token),
+          loadAdminSnapshot(token),
+        ]);
         setProducts(data.products);
-        setCustomers(data.customers);
+        setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
+        setOrders(op.orders);
+        setPayments(op.payments);
+        setKpis(snap.kpis);
+        setPurchases(snap.purchases);
+        setDeliveries(snap.deliveries);
+        setExpenses(snap.expenses);
+        setUsers(snap.users);
+        setAudit(snap.audit);
         setAuthenticated(true);
       } catch {
-        window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         setAuthenticated(false);
       } finally {
         setLoading(false);
@@ -192,10 +349,22 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       if (user.role !== "ADMIN") {
         return "Esta cuenta no es de administrador.";
       }
-      const data = await loadAdminCatalog(accessToken);
+      const [data, op, snap] = await Promise.all([
+        loadAdminCatalog(accessToken),
+        loadStaffOperational(accessToken),
+        loadAdminSnapshot(accessToken),
+      ]);
       setProducts(data.products);
-      setCustomers(data.customers);
-      window.localStorage.setItem(TOKEN_KEY, accessToken);
+      setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
+      setOrders(op.orders);
+      setPayments(op.payments);
+      setKpis(snap.kpis);
+      setPurchases(snap.purchases);
+      setDeliveries(snap.deliveries);
+      setExpenses(snap.expenses);
+      setUsers(snap.users);
+      setAudit(snap.audit);
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
       setAuthenticated(true);
       return null;
     } catch (e) {
@@ -204,10 +373,20 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(TOKEN_KEY);
+    void apiLogout();
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setAuthenticated(false);
     setProducts([]);
     setCustomers([]);
+    setOrders([]);
+    setPayments([]);
+    setPurchases([]);
+    setDeliveries([]);
+    setExpenses([]);
+    setUsers([]);
+    setAudit([]);
+    setKpis(deriveAdminKpis([], [], []));
+    setAlertOverrides({});
   }, []);
 
   const getCustomer = useCallback(
@@ -224,7 +403,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const getOrder = useCallback((id: string) => orders.find((o) => o.id === id), [orders]);
 
   const setAlertState = useCallback((id: string, state: AlertState) => {
-    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, state } : a)));
+    setAlertOverrides((prev) => ({ ...prev, [id]: state }));
   }, []);
 
   const value = useMemo(
@@ -233,7 +412,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       logout,
-      kpis: dashboardKpisSeed,
+      staffFetch,
+      refreshOperational,
+      kpis,
       customers,
       products,
       orders,
@@ -254,6 +435,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       logout,
+      staffFetch,
+      refreshOperational,
+      kpis,
       customers,
       products,
       orders,

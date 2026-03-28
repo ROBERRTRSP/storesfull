@@ -16,9 +16,9 @@ const items = [
 
 export function ClientShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { authenticated, loading, authError, login, demoLogin, logout } = useClientData();
-  const [email, setEmail] = useState("customer@demo.local");
-  const [password, setPassword] = useState("Customer1234");
+  const { authenticated, loading, authError, login, logout } = useClientData();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const onLogin = (e: FormEvent) => {
     e.preventDefault();
@@ -37,12 +37,13 @@ export function ClientShell({ children }: { children: ReactNode }) {
             <button className="w-full rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">
               {loading ? "Entrando..." : "Entrar"}
             </button>
-            <button type="button" onClick={demoLogin} className="w-full rounded-lg border px-3 py-2 text-sm">
-              Entrar en modo demo
-            </button>
           </form>
           {authError && <p className="mt-2 text-xs text-rose-600">{authError}</p>}
-          <p className="mt-3 text-xs text-slate-500">Demo: customer@demo.local / Customer1234</p>
+          <p className="mt-3 text-center text-xs text-slate-500">
+            <Link href="/" className="underline hover:text-slate-700">
+              Acceso unificado para todos los roles
+            </Link>
+          </p>
         </div>
       </div>
     );

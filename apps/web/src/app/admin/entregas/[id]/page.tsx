@@ -39,11 +39,13 @@ export default function AdminEntregaDetallePage() {
         </p>
       </div>
       <section className="rounded-2xl border bg-slate-50 p-4">
-        <h2 className="font-semibold">Checklist y notas (demo)</h2>
-        <p className="mt-2 text-sm text-slate-600">Pedidos en ruta, firmas, fotos, incidencias — datos reales desde API.</p>
-        <button type="button" className="mt-3 rounded-lg border bg-white px-4 py-2 text-sm">
-          Reasignar ruta (demo)
-        </button>
+        <h2 className="font-semibold">Entregas en esta ruta</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          Pedidos: {d.ordersCount} · completas: {d.completed} · parciales: {d.partial}
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Para checklist por pedido, ítems entregados y evidencias, hace falta exponer el detalle de `Delivery` / `DeliveryItem` en la API admin.
+        </p>
       </section>
     </div>
   );

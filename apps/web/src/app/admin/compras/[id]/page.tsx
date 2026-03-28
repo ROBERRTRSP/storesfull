@@ -47,11 +47,13 @@ export default function AdminCompraDetallePage() {
         </div>
       </div>
       <section className="rounded-2xl border bg-white p-4 shadow-sm">
-        <h2 className="font-semibold">Productos / incidencias (demo)</h2>
-        <ul className="mt-3 space-y-2 text-sm text-slate-700">
-          <li>• Productos comprados vs no conseguidos · sustituciones</li>
-          <li>• Comprobantes subidos por el comprador</li>
-        </ul>
+        <h2 className="font-semibold">Resumen de la corrida</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          Comprador: {p.buyerName} · {p.linesCount} líneas · estado: {p.status}
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          El detalle línea a línea (faltantes, sustituciones, comprobantes) se puede ampliar conectando este id al módulo de compras en backend.
+        </p>
       </section>
     </div>
   );

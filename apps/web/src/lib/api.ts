@@ -1,15 +1,10 @@
 /**
- * Base de la API Nest (rutas tipo /auth/login, /client/bootstrap…).
- * - Si defines NEXT_PUBLIC_API_URL, se usa tal cual (CORS directo al backend).
- * - Si no, en desarrollo: localhost:3010.
- * - En producción: mismo sitio que la web + rewrite (Vercel: variable API_BACKEND_URL en build).
+ * Base de la API en el mismo origen (Next Route Handlers bajo /api/v1).
+ * Opcional: NEXT_PUBLIC_API_URL para forzar otro origen (CORS).
  */
 export function getApiBaseUrl(): string {
   const raw = (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
   if (raw) return raw;
-  if (process.env.NODE_ENV === "development") {
-    return "http://localhost:3010/api/v1";
-  }
   if (typeof window !== "undefined") {
     return `${window.location.origin}/api/v1`;
   }
@@ -18,9 +13,8 @@ export function getApiBaseUrl(): string {
     const host = vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
     return `${host.replace(/\/+$/, "")}/api/v1`;
   }
-  const backend = (process.env.API_BACKEND_URL ?? "").trim().replace(/\/+$/, "");
-  if (backend) return `${backend}/api/v1`;
-  return "http://localhost:3010/api/v1";
+  const site = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").trim().replace(/\/+$/, "");
+  return `${site}/api/v1`;
 }
 
 export async function parseApiErrorMessage(res: Response): Promise<string> {
@@ -61,10 +55,21 @@ export async function apiLogin(email: string, password: string): Promise<ApiLogi
   return res.json() as Promise<ApiLoginResult>;
 }
 
+/** Revoca refresh en servidor y borra cookies httpOnly (`refresh_token`, `ruta_access`). */
+export async function apiLogout(): Promise<void> {
+  try {
+    const base = getApiBaseUrl();
+    await fetch(`${base}/auth/logout`, { method: "POST", credentials: "include" });
+  } catch {
+    /* ignorar red */
+  }
+}
+
 export async function apiFetchMe(token: string): Promise<ApiLoginUser> {
   const base = getApiBaseUrl();
   const res = await fetch(`${base}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
   });
   if (!res.ok) throw new Error("Sesión inválida");
   return res.json() as Promise<ApiLoginUser>;
@@ -72,7 +77,7 @@ export async function apiFetchMe(token: string): Promise<ApiLoginUser> {
 
 export function networkErrorMessage(err: unknown): string {
   if (err instanceof TypeError) {
-    return "No se pudo conectar con la API. En Vercel: API_BACKEND_URL (y redeploy) o NEXT_PUBLIC_API_URL.";
+    return "No se pudo conectar con la API. Comprueba la red o que el servidor Next esté en marcha.";
   }
   if (err instanceof Error) return err.message;
   return "Error inesperado";

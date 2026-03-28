@@ -173,8 +173,8 @@ export default function VendedorClientePerfilPage() {
         <button
           type="button"
           className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-medium"
-          onClick={() => {
-            const nid = repeatLastOrder(c.id);
+          onClick={async () => {
+            const nid = await repeatLastOrder(c.id);
             if (nid) window.location.href = `/vendedor/pedidos/${nid}`;
           }}
         >

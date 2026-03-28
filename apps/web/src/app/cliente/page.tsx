@@ -8,7 +8,7 @@ export default function ClienteInicioPage() {
   const { pendingBalance, orders, products, repeatOrder } = useClientData();
   const lastOrder = orders[0];
   const processCount = orders.filter((o) =>
-    ["confirmado", "pendiente_de_compra", "en_compra", "en_ruta"].includes(o.status),
+    ["confirmado", "pendiente_de_compra", "en_compra", "comprado", "en_ruta"].includes(o.status),
   ).length;
   const frequent = products.slice(0, 4);
   const offers = products.filter((p) => p.promo).slice(0, 3);

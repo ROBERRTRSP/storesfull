@@ -9,19 +9,10 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  catalogSeed,
-  customersSeed,
-  followUpsSeed,
-  offersSeed,
-  opportunitiesSeed,
-  ordersSeed,
-  sellerProfileSeed,
-  visitsTodaySeed,
-} from "./mock-data";
 import type {
   CatalogProduct,
   FollowUpStatus,
+  OrderStatusSeller,
   SellerCustomer,
   SellerFollowUp,
   SellerOffer,
@@ -32,9 +23,65 @@ import type {
   SellerVisit,
   VisitStatus,
 } from "./types";
-import { apiFetchMe, apiLogin, getApiBaseUrl, networkErrorMessage } from "@/lib/api";
+import { ACCESS_TOKEN_STORAGE_KEY } from "@/lib/auth/constants";
+import { apiFetchMe, apiLogin, apiLogout, getApiBaseUrl, networkErrorMessage, parseApiErrorMessage } from "@/lib/api";
 
-const TOKEN_KEY = "ruta_seller_access_token";
+function sellerProfileFromUser(u: { fullName: string; email: string }): SellerProfile {
+  return { name: u.fullName, email: u.email, phone: "", zoneLabel: "" };
+}
+
+const emptySellerProfile: SellerProfile = { name: "", email: "", phone: "", zoneLabel: "" };
+
+type StaffOrderApiRow = {
+  id: string;
+  customerId: string;
+  date: string;
+  status: string;
+  items: { productId: string; productName: string; qty: number; unitPrice: number }[];
+  notes?: string | null;
+};
+
+function staffUiStatusToSeller(s: string): OrderStatusSeller {
+  if (s === "borrador") return "borrador";
+  if (s === "confirmado") return "confirmado";
+  if (s === "cancelado") return "cancelado";
+  if (["entregado", "parcial", "pendiente_pago", "pagado"].includes(s)) return "entregado";
+  return "en_proceso";
+}
+
+function mapStaffListRowToSeller(row: StaffOrderApiRow): SellerOrder {
+  return {
+    id: row.id,
+    customerId: row.customerId,
+    createdAt: row.date,
+    status: staffUiStatusToSeller(row.status),
+    lines: row.items.map((it) => ({
+      productId: it.productId,
+      name: it.productName,
+      qty: it.qty,
+      unitPrice: it.unitPrice,
+    })),
+    note: row.notes ?? undefined,
+  };
+}
+
+function mapStaffDetailToSeller(data: {
+  id: string;
+  customerId: string;
+  date: string;
+  status: string;
+  notes?: string | null;
+  items: { productId: string; productName: string; qty: number; unitPrice: number }[];
+}): SellerOrder {
+  return mapStaffListRowToSeller({
+    id: data.id,
+    customerId: data.customerId,
+    date: data.date,
+    status: data.status,
+    items: data.items,
+    notes: data.notes,
+  });
+}
 
 type SellerContextType = {
   authenticated: boolean;
@@ -54,9 +101,9 @@ type SellerContextType = {
   updateVisitStatus: (visitId: string, status: VisitStatus, quickNote?: string) => void;
   addFollowUp: (customerId: string, text: string, status?: FollowUpStatus) => void;
   updateFollowUpStatus: (id: string, status: FollowUpStatus) => void;
-  createOrUpdateDraft: (customerId: string, lines: SellerOrderLine[], note?: string) => SellerOrder;
-  confirmOrder: (orderId: string) => void;
-  repeatLastOrder: (customerId: string) => string | null;
+  createOrUpdateDraft: (customerId: string, lines: SellerOrderLine[], note?: string) => Promise<SellerOrder | null>;
+  confirmOrder: (orderId: string) => Promise<void>;
+  repeatLastOrder: (customerId: string) => Promise<string | null>;
   dashboardStats: {
     visitasPendientesHoy: number;
     visitasHechasHoy: number;
@@ -140,38 +187,55 @@ function mapRowToCatalogProduct(p: CatalogRow): CatalogProduct {
 export function SellerProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [profile, setProfile] = useState<SellerProfile>(sellerProfileSeed);
-  const [catalog, setCatalog] = useState<CatalogProduct[]>(catalogSeed);
-  const [customers, setCustomers] = useState(customersSeed);
-  const [orders, setOrders] = useState(ordersSeed);
-  const [visitsToday, setVisitsToday] = useState(visitsTodaySeed);
-  const [followUps, setFollowUps] = useState(followUpsSeed);
-  const [opportunities] = useState(opportunitiesSeed);
-  const [offers] = useState(offersSeed);
+  const [profile, setProfile] = useState<SellerProfile>(emptySellerProfile);
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [customers, setCustomers] = useState<SellerCustomer[]>([]);
+  const [orders, setOrders] = useState<SellerOrder[]>([]);
+  const [visitsToday, setVisitsToday] = useState<SellerVisit[]>([]);
+  const [followUps, setFollowUps] = useState<SellerFollowUp[]>([]);
+  const [opportunities] = useState<SellerOpportunity[]>([]);
+  const [offers] = useState<SellerOffer[]>([]);
 
-  const applySession = useCallback(async (accessToken: string) => {
+  const loadSellerOrders = useCallback(async (accessToken: string) => {
     const base = getApiBaseUrl();
-    const headers = { Authorization: `Bearer ${accessToken}` };
-    const [prRes, cuRes] = await Promise.all([
-      fetch(`${base}/products`, { headers }),
-      fetch(`${base}/customers`, { headers }),
-    ]);
-    if (prRes.ok) {
-      const rows = (await prRes.json()) as CatalogRow[];
-      setCatalog(rows.map(mapRowToCatalogProduct));
-    } else {
-      setCatalog(catalogSeed);
+    const res = await fetch(`${base}/staff/orders`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      setOrders([]);
+      return;
     }
-    if (cuRes.ok) {
-      const crows = (await cuRes.json()) as CustomerApiRow[];
-      setCustomers(crows.map(mapApiToSellerCustomer));
-    } else {
-      setCustomers(customersSeed);
-    }
+    const rows = (await res.json()) as StaffOrderApiRow[];
+    setOrders(rows.map(mapStaffListRowToSeller));
   }, []);
 
+  const applySession = useCallback(
+    async (accessToken: string) => {
+      const base = getApiBaseUrl();
+      const headers = { Authorization: `Bearer ${accessToken}` };
+      const [prRes, cuRes] = await Promise.all([
+        fetch(`${base}/products`, { headers }),
+        fetch(`${base}/customers`, { headers }),
+      ]);
+      if (prRes.ok) {
+        const rows = (await prRes.json()) as CatalogRow[];
+        setCatalog(rows.map(mapRowToCatalogProduct));
+      } else {
+        setCatalog([]);
+      }
+      if (cuRes.ok) {
+        const crows = (await cuRes.json()) as CustomerApiRow[];
+        setCustomers(crows.map(mapApiToSellerCustomer));
+      } else {
+        setCustomers([]);
+      }
+      await loadSellerOrders(accessToken);
+    },
+    [loadSellerOrders],
+  );
+
   useEffect(() => {
-    const token = window.localStorage.getItem(TOKEN_KEY);
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
     if (!token) {
       setLoading(false);
       return;
@@ -180,20 +244,17 @@ export function SellerProvider({ children }: { children: ReactNode }) {
       try {
         const user = await apiFetchMe(token);
         if (user.role !== "SELLER") {
-          window.localStorage.removeItem(TOKEN_KEY);
+          window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
           setAuthenticated(false);
           return;
         }
-        setProfile({
-          name: user.fullName,
-          email: user.email,
-          phone: sellerProfileSeed.phone,
-          zoneLabel: sellerProfileSeed.zoneLabel,
-        });
+        setProfile(sellerProfileFromUser(user));
         await applySession(token);
+        setVisitsToday([]);
+        setFollowUps([]);
         setAuthenticated(true);
       } catch {
-        window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         setAuthenticated(false);
       } finally {
         setLoading(false);
@@ -209,14 +270,11 @@ export function SellerProvider({ children }: { children: ReactNode }) {
         if (user.role !== "SELLER") {
           return "Esta cuenta no es de vendedor.";
         }
-        setProfile({
-          name: user.fullName,
-          email: user.email,
-          phone: sellerProfileSeed.phone,
-          zoneLabel: sellerProfileSeed.zoneLabel,
-        });
+        setProfile(sellerProfileFromUser(user));
         await applySession(accessToken);
-        window.localStorage.setItem(TOKEN_KEY, accessToken);
+        setVisitsToday([]);
+        setFollowUps([]);
+        window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
         setAuthenticated(true);
         return null;
       } catch (e) {
@@ -227,11 +285,15 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(TOKEN_KEY);
+    void apiLogout();
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setAuthenticated(false);
-    setProfile(sellerProfileSeed);
-    setCatalog(catalogSeed);
-    setCustomers(customersSeed);
+    setProfile(emptySellerProfile);
+    setCatalog([]);
+    setCustomers([]);
+    setOrders([]);
+    setVisitsToday([]);
+    setFollowUps([]);
   }, []);
 
   const getCustomer = useCallback(
@@ -289,50 +351,93 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createOrUpdateDraft = useCallback(
-    (customerId: string, lines: SellerOrderLine[], note?: string) => {
+    async (customerId: string, lines: SellerOrderLine[], note?: string) => {
+      const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      if (!token || lines.length < 1) return null;
+      const base = getApiBaseUrl();
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
       const existing = orders.find((o) => o.customerId === customerId && o.status === "borrador");
-      const id = existing?.id ?? `o-${Date.now()}`;
-      const row: SellerOrder = {
-        id,
-        customerId,
-        status: "borrador",
-        createdAt: existing?.createdAt ?? new Date().toISOString().slice(0, 10),
-        lines,
+      const payload = {
+        items: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
         note,
       };
-      setOrders((prev) => {
-        const without = prev.filter((o) => o.id !== id);
-        return [row, ...without];
-      });
+      const res = existing
+        ? await fetch(`${base}/staff/orders/${existing.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(payload),
+          })
+        : await fetch(`${base}/staff/orders`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              customerId,
+              mode: "draft",
+              ...payload,
+            }),
+          });
+      if (!res.ok) {
+        console.error(await parseApiErrorMessage(res));
+        return null;
+      }
+      const data = (await res.json()) as Parameters<typeof mapStaffDetailToSeller>[0];
+      const row = mapStaffDetailToSeller(data);
+      await loadSellerOrders(token);
       return row;
     },
-    [orders],
+    [orders, loadSellerOrders],
   );
 
-  const confirmOrder = useCallback((orderId: string) => {
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: "confirmado" } : o)));
-  }, []);
+  const confirmOrder = useCallback(
+    async (orderId: string) => {
+      const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      if (!token) return;
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/staff/orders/${orderId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: "confirmado" }),
+      });
+      if (res.ok) await loadSellerOrders(token);
+    },
+    [loadSellerOrders],
+  );
 
   const repeatLastOrder = useCallback(
-    (customerId: string) => {
+    async (customerId: string) => {
+      const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      if (!token) return null;
       const list = orders
         .filter((o) => o.customerId === customerId && o.status !== "borrador")
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       const last = list[0];
       if (!last) return null;
-      const id = `o-${Date.now()}`;
-      const draft: SellerOrder = {
-        id,
-        customerId,
-        status: "borrador",
-        createdAt: new Date().toISOString().slice(0, 10),
-        lines: last.lines.map((l) => ({ ...l })),
-        note: `Repetido de pedido ${last.id}`,
-      };
-      setOrders((prev) => [draft, ...prev.filter((o) => !(o.customerId === customerId && o.status === "borrador"))]);
-      return id;
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/staff/orders`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId,
+          mode: "draft",
+          items: last.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+          note: `Repetido de ${last.id}`,
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { id: string };
+      await loadSellerOrders(token);
+      return data.id;
     },
-    [orders],
+    [orders, loadSellerOrders],
   );
 
   const today = new Date().toISOString().slice(0, 10);

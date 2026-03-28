@@ -1,28 +1,24 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import nextEnv from "@next/env";
+
+const { loadEnvConfig } = nextEnv;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Monorepo: dependencias suelen estar en la raíz del repo; sin esto Vercel puede romper las Serverless Functions. */
-const monorepoRoot = path.resolve(__dirname, "..", "..");
+/** Carpeta de la API Nest (misma BD y JWT que las Route Handlers bajo /api/v1). */
+const apiPackageDir = path.resolve(__dirname, "..", "api");
+const dev = process.env.NODE_ENV !== "production";
+// Next solo carga .env desde apps/web; sin esto, Prisma en /api/v1 falla con "DATABASE_URL" ausente → HTTP 500.
+loadEnvConfig(apiPackageDir, dev);
+loadEnvConfig(__dirname, dev);
 
-/** Origen del backend Nest (sin /api/v1). En Vercel: variable API_BACKEND_URL → el front usa /api/v1 en el mismo dominio. */
-const apiBackend = (process.env.API_BACKEND_URL ?? "").trim().replace(/\/+$/, "");
+/** Monorepo: dependencias en la raíz; necesario para serverless en Vercel. */
+const monorepoRoot = path.resolve(__dirname, "..", "..");
+loadEnvConfig(monorepoRoot, dev);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    outputFileTracingRoot: monorepoRoot,
-  },
-  async rewrites() {
-    if (!apiBackend) return [];
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${apiBackend}/api/v1/:path*`,
-      },
-    ];
-  },
   images: {
     remotePatterns: [
       {
@@ -33,5 +29,11 @@ const nextConfig = {
     ],
   },
 };
+
+if (process.env.NODE_ENV === "production") {
+  nextConfig.experimental = {
+    outputFileTracingRoot: monorepoRoot,
+  };
+}
 
 export default nextConfig;

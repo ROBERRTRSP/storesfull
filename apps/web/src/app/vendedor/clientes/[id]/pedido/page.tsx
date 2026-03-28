@@ -57,14 +57,15 @@ export default function VendedorNuevoPedidoPage() {
 
   const total = lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 
-  const saveDraft = () => {
-    const row = createOrUpdateDraft(id, lines, note);
-    router.push(`/vendedor/pedidos/${row.id}`);
+  const saveDraft = async () => {
+    const row = await createOrUpdateDraft(id, lines, note);
+    if (row) router.push(`/vendedor/pedidos/${row.id}`);
   };
 
-  const confirm = () => {
-    const row = createOrUpdateDraft(id, lines, note);
-    confirmOrder(row.id);
+  const confirm = async () => {
+    const row = await createOrUpdateDraft(id, lines, note);
+    if (!row) return;
+    await confirmOrder(row.id);
     router.push(`/vendedor/clientes/${id}`);
   };
 

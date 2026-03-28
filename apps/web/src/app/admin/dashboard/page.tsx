@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { useAdmin } from "@/components/admin/admin-context";
+import type { AdminOrderStatus } from "@/components/admin/types";
 
 function KpiCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -37,8 +38,35 @@ export default function AdminDashboardPage() {
 
   const pendingAlerts = useMemo(() => alerts.filter((a) => a.state === "pendiente"), [alerts]);
 
-  const salesByDay = [120, 95, 140, 88, 210, 128, kpis.ventasHoy];
-  const dayLabels = ["L", "M", "X", "J", "V", "S", "D"];
+  const revenueStatuses = useMemo(
+    () =>
+      new Set<AdminOrderStatus>([
+        "entregado",
+        "pagado",
+        "parcial",
+        "pendiente_pago",
+        "en_ruta",
+        "comprado",
+      ]),
+    [],
+  );
+
+  const { salesByDay, dayLabels } = useMemo(() => {
+    const values: number[] = [];
+    const labels: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - (6 - i));
+      const ymd = d.toISOString().slice(0, 10);
+      labels.push(d.toLocaleDateString("es", { weekday: "narrow" }));
+      const sum = orders
+        .filter((o) => o.date === ymd && revenueStatuses.has(o.status))
+        .reduce((s, o) => s + o.total, 0);
+      values.push(sum);
+    }
+    return { salesByDay: values, dayLabels: labels };
+  }, [orders, revenueStatuses]);
 
   const bySeller = useMemo(() => {
     const m = new Map<string, number>();
@@ -93,8 +121,8 @@ export default function AdminDashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-900">Ventas por día (demo)</h2>
-            <span className="text-xs text-slate-500">vs. semana anterior</span>
+            <h2 className="font-semibold text-slate-900">Ventas últimos 7 días</h2>
+            <span className="text-xs text-slate-500">Pedidos con valor reconocido (entregados / ruta / cobro)</span>
           </div>
           <MiniBars values={salesByDay} labels={dayLabels} />
         </section>
@@ -143,7 +171,7 @@ export default function AdminDashboardPage() {
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="font-semibold text-slate-900">Clientes con saldo (muestra)</h2>
+        <h2 className="font-semibold text-slate-900">Clientes con saldo pendiente</h2>
         <ul className="mt-2 divide-y divide-slate-100">
           {customers
             .filter((c) => c.balancePending > 0)

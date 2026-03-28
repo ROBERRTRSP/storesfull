@@ -6,8 +6,6 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  // Neon (pooler): usa -pooler en DATABASE_URL y la URL "direct" aquí para `prisma migrate`.
-  // Si solo tienes una URL (directa), repite el mismo valor en ambas variables.
   directUrl = env("DIRECT_URL")
 }
 
@@ -73,8 +71,11 @@ model User {
   deliveryRoutes DeliveryRoute[] @relation("delivery_user_routes")
   paymentsCreated Payment[] @relation("payment_created_by")
   expensesCreated Expense[] @relation("expense_created_by")
-  refreshTokens RefreshToken[]
-  auditEvents   AuditEvent[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  auditEvents         AuditEvent[]
+  driverProfile Driver?
+  vendorProfile Vendor?
 }
 
 model Role {
@@ -117,6 +118,20 @@ model RefreshToken {
   expiresAt   DateTime
 }
 
+/// Token opaco de un solo uso para restablecer contraseña (el valor enviado por email no se guarda en claro).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Cliente B2B (entidad de dominio equivalente a "Client").
 model Customer {
   id           String         @id @default(cuid())
   businessName String
@@ -138,6 +153,7 @@ model Customer {
   assignments  CustomerAssignment[]
   payments     Payment[]
   deliveries   Delivery[]
+  addresses    Address[]
 }
 
 model CustomerAssignment {
@@ -369,5 +385,53 @@ model AuditEvent {
   beforeJson Json?
   afterJson  Json?
   createdAt  DateTime @default(now())
+}
+
+/// Perfil de conductor vinculado a un usuario (rol DELIVERY u otros).
+model Driver {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseId String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  vehicles  Vehicle[]
+}
+
+/// Perfil de vendedor vinculado a un usuario (rol SELLER u otros).
+model Vendor {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tradeName String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Dirección normalizada (cliente = Customer / "Client").
+model Address {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label       String?
+  line1       String
+  line2       String?
+  city        String?
+  region      String?
+  postalCode  String?
+  country     String?  @default("DO")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Vehicle {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  plate       String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 

@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import { verifyPassword } from '../common/password';
 import { PrismaService } from '../prisma/prisma.service';
 
 type JwtPayload = {
@@ -63,7 +64,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const ok = await argon2.verify(user.passwordHash, password);
+    const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
     const payload: JwtPayload = { sub: user.id, role: user.role.code };

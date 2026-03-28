@@ -6,21 +6,29 @@
     "node": ">=18.18.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate --schema=../api/prisma/schema.prisma && next build",
+    "clean": "rm -rf .next node_modules/.cache",
+    "dev": "WATCHPACK_POLLING=true next dev --hostname 127.0.0.1",
+    "build": "sh -c 'set -a && [ -f ../api/.env ] && . ../api/.env; set +a; prisma generate --schema=../api/prisma/schema.prisma && prisma migrate deploy --schema=../api/prisma/schema.prisma && next build'",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate --schema=../api/prisma/schema.prisma"
   },
   "dependencies": {
     "@prisma/client": "^6.16.0",
+    "argon2": "^0.43.0",
+    "bcryptjs": "^3.0.3",
+    "jose": "^5.9.6",
     "next": "^14.2.5",
+    "nodemailer": "^8.0.4",
     "react": "^18",
     "react-dom": "^18",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/nodemailer": "^7.0.11",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8.57.1",

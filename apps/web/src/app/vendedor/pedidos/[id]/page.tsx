@@ -57,14 +57,15 @@ export default function VendedorEditarPedidoPage() {
     else setLines([...lines, { productId: p.id, name: p.name, qty: 1, unitPrice: p.price }]);
   };
 
-  const save = () => {
-    createOrUpdateDraft(order.customerId, lines, note);
-    router.push(`/vendedor/clientes/${order.customerId}`);
+  const save = async () => {
+    const row = await createOrUpdateDraft(order.customerId, lines, note);
+    if (row) router.push(`/vendedor/clientes/${order.customerId}`);
   };
 
-  const confirm = () => {
-    createOrUpdateDraft(order.customerId, lines, note);
-    confirmOrder(order.id);
+  const confirm = async () => {
+    const row = await createOrUpdateDraft(order.customerId, lines, note);
+    if (!row) return;
+    await confirmOrder(order.id);
     router.push(`/vendedor/clientes/${order.customerId}`);
   };
 
