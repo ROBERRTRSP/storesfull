@@ -4,8 +4,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon (pooler): usa -pooler en DATABASE_URL y la URL "direct" aquí para `prisma migrate`.
+  // Si solo tienes una URL (directa), repite el mismo valor en ambas variables.
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserStatus {

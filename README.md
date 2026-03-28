@@ -36,9 +36,10 @@ docs/
 
 1) Requisitos: Node 18+ (recomendado 20+), Docker Desktop con `docker compose`.
 
-2) Variables: en `apps/api` copia `.env.example` a `.env` si aún no existe. Debe coincidir con Docker:
+2) Variables: en `apps/api` copia `.env.example` a `.env` si aún no existe.
 
-- Usuario/contraseña/DB: `ruta` / `ruta` / `ruta_dev` (ver `infra/docker/docker-compose.yml`).
+- **Docker local:** usuario/contraseña/DB: `ruta` / `ruta` / `ruta_dev` (ver `infra/docker/docker-compose.yml`). Incluye `DIRECT_URL` igual que `DATABASE_URL`.
+- **Neon (nube):** en [console.neon.tech](https://console.neon.tech) crea un proyecto → **Connection string**. Pega la URL **pooled** (`…-pooler…`) en `DATABASE_URL` y la **direct** (sin `-pooler`) en `DIRECT_URL`. Si solo usas la directa, repite la misma cadena en ambas. Añade `?sslmode=require` si Neon no lo trae ya en la plantilla.
 - API en puerto **3010** para no chocar con Next (3000).
 
 3) Levantar Postgres + Adminer:
@@ -74,7 +75,9 @@ Panel cliente: `http://localhost:3000/cliente` (o el puerto que muestre Next).
 
 **Login demo cliente:** `customer@demo.local` / `Customer1234` (creado por el seed).
 
-**Paneles web con API (mismo seed):** admin `admin@demo.local` / `Admin1234`, vendedor `seller@demo.local` / `Seller1234`, conductor `driver@demo.local` / `Driver1234`. La web usa `NEXT_PUBLIC_API_URL` (por defecto `http://localhost:3010/api/v1` en local).
+**Paneles web con API (mismo seed):** admin `admin@demo.local` / `Admin1234`, vendedor `seller@demo.local` / `Seller1234`, conductor `driver@demo.local` / `Driver1234`.
+
+**Vercel (Next):** `DATABASE_URL` y `DIRECT_URL` (Neon) si usas Prisma en la web; **`API_BACKEND_URL`** = URL del Nest **sin** `/api/v1` (ej. `https://tu-api.onrender.com`) para proxy `/api/v1` → backend. Opcional: `NEXT_PUBLIC_API_URL` si prefieres llamar al backend directo desde el navegador. Tras cambiar variables, **Redeploy**.
 
 ## Notas de producto (clave)
 

@@ -35,7 +35,6 @@ type ClientContextType = {
 
 const ClientContext = createContext<ClientContextType | null>(null);
 
-const API_BASE = getApiBaseUrl();
 const TOKEN_KEY = "ruta_client_access_token";
 
 const toReadableError = (error: unknown) => {
@@ -100,7 +99,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
 
   const fetchJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
     if (!token) throw new Error("No active session");
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${getApiBaseUrl()}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -119,7 +118,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   const bootstrap = async (accessToken: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/client/bootstrap`, {
+      const res = await fetch(`${getApiBaseUrl()}/client/bootstrap`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) throw new Error("No se pudo cargar portal cliente");
@@ -151,7 +150,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
