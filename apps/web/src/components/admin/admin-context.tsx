@@ -315,28 +315,34 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         if (user.role !== "ADMIN") {
           window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
           setAuthenticated(false);
+          setLoading(false);
           return;
         }
-        const [data, op, snap] = await Promise.all([
-          loadAdminCatalog(token),
-          loadStaffOperational(token),
-          loadAdminSnapshot(token),
-        ]);
-        setProducts(data.products);
-        setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
-        setOrders(op.orders);
-        setPayments(op.payments);
-        setKpis(snap.kpis);
-        setPurchases(snap.purchases);
-        setDeliveries(snap.deliveries);
-        setExpenses(snap.expenses);
-        setUsers(snap.users);
-        setAudit(snap.audit);
         setAuthenticated(true);
+        setLoading(false);
+
+        try {
+          const [data, op, snap] = await Promise.all([
+            loadAdminCatalog(token),
+            loadStaffOperational(token),
+            loadAdminSnapshot(token),
+          ]);
+          setProducts(data.products);
+          setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
+          setOrders(op.orders);
+          setPayments(op.payments);
+          setKpis(snap.kpis);
+          setPurchases(snap.purchases);
+          setDeliveries(snap.deliveries);
+          setExpenses(snap.expenses);
+          setUsers(snap.users);
+          setAudit(snap.audit);
+        } catch {
+          /* Sesión válida: el panel se muestra; datos vacíos hasta refresh o reintento */
+        }
       } catch {
         window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         setAuthenticated(false);
-      } finally {
         setLoading(false);
       }
     })();
@@ -349,23 +355,29 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       if (user.role !== "ADMIN") {
         return "Esta cuenta no es de administrador.";
       }
-      const [data, op, snap] = await Promise.all([
-        loadAdminCatalog(accessToken),
-        loadStaffOperational(accessToken),
-        loadAdminSnapshot(accessToken),
-      ]);
-      setProducts(data.products);
-      setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
-      setOrders(op.orders);
-      setPayments(op.payments);
-      setKpis(snap.kpis);
-      setPurchases(snap.purchases);
-      setDeliveries(snap.deliveries);
-      setExpenses(snap.expenses);
-      setUsers(snap.users);
-      setAudit(snap.audit);
       window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
       setAuthenticated(true);
+      void (async () => {
+        try {
+          const [data, op, snap] = await Promise.all([
+            loadAdminCatalog(accessToken),
+            loadStaffOperational(accessToken),
+            loadAdminSnapshot(accessToken),
+          ]);
+          setProducts(data.products);
+          setCustomers(mergeCustomerMetrics(data.customers, snap.customerMetrics));
+          setOrders(op.orders);
+          setPayments(op.payments);
+          setKpis(snap.kpis);
+          setPurchases(snap.purchases);
+          setDeliveries(snap.deliveries);
+          setExpenses(snap.expenses);
+          setUsers(snap.users);
+          setAudit(snap.audit);
+        } catch {
+          /* Igual que en bootstrap: no desloguear si falla la carga inicial */
+        }
+      })();
       return null;
     } catch (e) {
       return networkErrorMessage(e);
