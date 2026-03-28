@@ -17,8 +17,22 @@ export function getApiBaseUrl(): string {
   return `${site}/api/v1`;
 }
 
+function looksLikeHtml(body: string): boolean {
+  const t = body.trimStart().slice(0, 200).toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html") || t.includes("<!doctype html");
+}
+
 export async function parseApiErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
+  if (looksLikeHtml(text)) {
+    if (res.status >= 500) {
+      return "El servidor respondió con error (no pudo ejecutar la API). En producción revisa en Vercel: DATABASE_URL, DIRECT_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET y que las migraciones de Prisma estén aplicadas.";
+    }
+    if (res.status === 404) {
+      return "No se encontró la ruta de la API. Comprueba el despliegue y que las peticiones vayan al mismo dominio que la app.";
+    }
+    return `Error HTTP ${res.status}: la respuesta no es JSON (suele indicar fallo de despliegue o proxy).`;
+  }
   try {
     const j = JSON.parse(text) as { message?: string | string[] };
     if (Array.isArray(j.message)) return j.message.join(", ");
@@ -26,7 +40,11 @@ export async function parseApiErrorMessage(res: Response): Promise<string> {
   } catch {
     /* ignore */
   }
-  return text || `Error HTTP ${res.status}`;
+  const plain = text.trim();
+  if (plain.length > 280) {
+    return `${plain.slice(0, 200)}… (${res.status})`;
+  }
+  return plain || `Error HTTP ${res.status}`;
 }
 
 export type ApiLoginUser = {

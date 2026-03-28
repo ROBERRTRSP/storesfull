@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE_NAME } from "@/lib/auth/constants";
 import { formatZodError, loginSchema } from "@/lib/server/auth-schemas";
-import { performLogin } from "@/lib/server/auth-flow";
 import { accessCookieOptions, refreshCookieOptions } from "@/lib/server/cookies";
 import { accessTtlSeconds } from "@/lib/server/jwt-tokens";
 import { ensureDatabaseEnvLoaded } from "@/lib/server/load-env-for-prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function missingDbEnvMessage(): string {
+  const prod = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+  if (prod) {
+    return "Faltan variables de entorno en el hosting: DATABASE_URL y DIRECT_URL (Postgres), y JWT_ACCESS_SECRET / JWT_REFRESH_SECRET. Configúralas en el panel del proyecto (p. ej. Vercel → Settings → Environment Variables) y vuelve a desplegar.";
+  }
+  return "Base de datos no configurada: define DATABASE_URL y DIRECT_URL en apps/web/.env.local o en apps/api/.env, Postgres en marcha, luego prisma migrate y seed.";
+}
 
 export async function POST(req: Request) {
   ensureDatabaseEnvLoaded();
+
+  if (!process.env.DATABASE_URL?.trim() || !process.env.DIRECT_URL?.trim()) {
+    return NextResponse.json({ message: missingDbEnvMessage() }, { status: 503 });
+  }
 
   let raw: unknown;
   try {
@@ -24,6 +36,7 @@ export async function POST(req: Request) {
   const { email, password } = parsed.data;
 
   try {
+    const { performLogin } = await import("@/lib/server/auth-flow");
     const result = await performLogin(email, password);
     if ("error" in result) return result.error;
 
