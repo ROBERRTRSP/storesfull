@@ -19,6 +19,11 @@ export class ProductsService {
       unit: p.unit,
       promo: p.tags?.find((t) => t.toLowerCase().includes('promo')) ?? null,
       combo: p.tags?.find((t) => t.toLowerCase().includes('combo')) ?? null,
+      sku: p.sku ?? p.id,
+      imageUrl: p.imageUrl ?? null,
+      referenceCost: p.referenceCost != null ? Number(p.referenceCost) : 0,
+      isActive: p.isActive,
+      tags: p.tags ?? [],
     }));
   }
 }

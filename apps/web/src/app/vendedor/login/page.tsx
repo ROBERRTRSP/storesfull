@@ -10,6 +10,7 @@ export default function VendedorLoginPage() {
   const { authenticated, loading, login } = useSeller();
   const [email, setEmail] = useState("seller@demo.local");
   const [password, setPassword] = useState("Seller1234");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!loading && authenticated) {
@@ -17,9 +18,14 @@ export default function VendedorLoginPage() {
     }
   }, [authenticated, loading, router]);
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    login(email, password);
+    setError("");
+    const err = await login(email, password);
+    if (err) {
+      setError(err);
+      return;
+    }
     router.replace("/vendedor/dashboard");
   };
 
@@ -46,6 +52,7 @@ export default function VendedorLoginPage() {
           </p>
         </div>
         <form onSubmit={onSubmit} className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+          {error ? <p className="rounded-lg bg-red-500/25 px-3 py-2 text-sm text-red-100">{error}</p> : null}
           <label className="block text-xs text-emerald-200">Email</label>
           <input
             className="w-full rounded-xl border border-white/20 bg-white/10 px-3 py-2.5 text-sm text-white placeholder:text-emerald-200/50"
@@ -70,7 +77,7 @@ export default function VendedorLoginPage() {
           >
             Entrar
           </button>
-          <p className="text-center text-xs text-emerald-200/80">Demo: seller@demo.local / Seller1234</p>
+          <p className="text-center text-xs text-emerald-200/80">API (tras seed): seller@demo.local / Seller1234</p>
         </form>
         <Link href="/" className="text-center text-sm text-emerald-200/90 underline hover:text-white">
           Volver al inicio

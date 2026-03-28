@@ -74,6 +74,8 @@ Panel cliente: `http://localhost:3000/cliente` (o el puerto que muestre Next).
 
 **Login demo cliente:** `customer@demo.local` / `Customer1234` (creado por el seed).
 
+**Paneles web con API (mismo seed):** admin `admin@demo.local` / `Admin1234`, vendedor `seller@demo.local` / `Seller1234`, conductor `driver@demo.local` / `Driver1234`. La web usa `NEXT_PUBLIC_API_URL` (por defecto `http://localhost:3010/api/v1` en local).
+
 ## Notas de producto (clave)
 
 - **No hay almacén**: el “stock” no gobierna el flujo.

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { getApiBaseUrl } from "@/lib/api";
 import { docsSeed, ordersSeed, paymentsSeed, productsSeed, profileSeed } from "./mock-data";
 import { CartItem, ClientOrder, ClientProfile, DocumentItem, Payment, Product } from "./types";
 
@@ -34,7 +35,7 @@ type ClientContextType = {
 
 const ClientContext = createContext<ClientContextType | null>(null);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3010/api/v1";
+const API_BASE = getApiBaseUrl();
 const TOKEN_KEY = "ruta_client_access_token";
 
 const toReadableError = (error: unknown) => {

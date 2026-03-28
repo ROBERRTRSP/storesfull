@@ -39,13 +39,14 @@ import type {
   PurchaseLineStatus,
   RouteVisitStatus,
 } from "./types";
+import { apiFetchMe, apiLogin, networkErrorMessage } from "@/lib/api";
 
-const SESSION_KEY = "ruta_conductor_session";
+const TOKEN_KEY = "ruta_conductor_access_token";
 
 type ConductorContextType = {
   authenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => void;
+  login: (email: string, password: string) => Promise<string | null>;
   logout: () => void;
   profile: DriverProfile;
   today: string;
@@ -168,7 +169,7 @@ function recomputeOrderDeliveryMeta(o: DriverOrder): DriverOrder {
 export function ConductorProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [profile] = useState(driverProfileSeed);
+  const [profile, setProfile] = useState<DriverProfile>(driverProfileSeed);
   const [customers] = useState(driverCustomersSeed);
   const [orders, setOrders] = useState<DriverOrder[]>(() => driverOrdersSeed.map((o) => ({ ...o, lines: o.lines.map((l) => ({ ...l })) })));
   const [routeVisitStatus, setRouteVisitStatusState] = useState<Record<string, RouteVisitStatus>>(() => ({ ...routeVisitStatusSeed }));
@@ -182,20 +183,60 @@ export function ConductorProvider({ children }: { children: ReactNode }) {
   const today = DRIVER_TODAY;
 
   useEffect(() => {
-    const s = window.localStorage.getItem(SESSION_KEY);
-    setAuthenticated(s === "1");
-    setLoading(false);
+    const token = window.localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const user = await apiFetchMe(token);
+        if (user.role !== "DELIVERY") {
+          window.localStorage.removeItem(TOKEN_KEY);
+          setAuthenticated(false);
+          return;
+        }
+        setProfile({
+          name: user.fullName,
+          email: user.email,
+          phone: driverProfileSeed.phone,
+          vehicleLabel: driverProfileSeed.vehicleLabel,
+        });
+        setAuthenticated(true);
+      } catch {
+        window.localStorage.removeItem(TOKEN_KEY);
+        setAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    if (!email || !password) return;
-    window.localStorage.setItem(SESSION_KEY, "1");
-    setAuthenticated(true);
+  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
+    if (!email?.trim() || !password) return "Introduce email y contraseña";
+    try {
+      const { accessToken, user } = await apiLogin(email.trim(), password);
+      if (user.role !== "DELIVERY") {
+        return "Esta cuenta no es de conductor / reparto.";
+      }
+      setProfile({
+        name: user.fullName,
+        email: user.email,
+        phone: driverProfileSeed.phone,
+        vehicleLabel: driverProfileSeed.vehicleLabel,
+      });
+      window.localStorage.setItem(TOKEN_KEY, accessToken);
+      setAuthenticated(true);
+      return null;
+    } catch (e) {
+      return networkErrorMessage(e);
+    }
   }, []);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(SESSION_KEY);
+    window.localStorage.removeItem(TOKEN_KEY);
     setAuthenticated(false);
+    setProfile(driverProfileSeed);
   }, []);
 
   const getCustomer = useCallback((id: string) => customers.find((c) => c.id === id), [customers]);

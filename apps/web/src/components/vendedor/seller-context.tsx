@@ -32,13 +32,14 @@ import type {
   SellerVisit,
   VisitStatus,
 } from "./types";
+import { apiFetchMe, apiLogin, getApiBaseUrl, networkErrorMessage } from "@/lib/api";
 
-const SESSION_KEY = "ruta_seller_session";
+const TOKEN_KEY = "ruta_seller_access_token";
 
 type SellerContextType = {
   authenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => void;
+  login: (email: string, password: string) => Promise<string | null>;
   logout: () => void;
   profile: SellerProfile;
   customers: SellerCustomer[];
@@ -77,10 +78,70 @@ function orderTotal(lines: SellerOrderLine[]) {
   return lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 }
 
+type CatalogRow = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  unit: string;
+  promo?: string | null;
+  combo?: string | null;
+  tags?: string[];
+};
+
+type CustomerApiRow = {
+  id: string;
+  businessName: string;
+  contactName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  zone?: string | null;
+  visitDay?: string | null;
+  gpsLink?: string | null;
+  status?: string;
+};
+
+function mapApiToSellerCustomer(c: CustomerApiRow): SellerCustomer {
+  return {
+    id: c.id,
+    businessName: c.businessName,
+    contactName: c.contactName ?? "",
+    phone: c.phone ?? "",
+    address: c.address ?? "",
+    zone: c.zone ?? "",
+    visitDay: c.visitDay ?? "",
+    gpsLink: c.gpsLink ?? undefined,
+    balancePending: 0,
+    lastPurchaseDate: null,
+    purchaseFrequencyDays: 14,
+    avgTicket: 0,
+    status: c.status === "INACTIVE" ? "inactivo" : "activo",
+    tags: [],
+  };
+}
+
+function mapRowToCatalogProduct(p: CatalogRow): CatalogProduct {
+  const tags = [
+    ...(p.tags ?? []),
+    ...(p.promo ? [String(p.promo)] : []),
+    ...(p.combo ? [String(p.combo)] : []),
+  ].filter(Boolean);
+  return {
+    id: p.id,
+    name: p.name,
+    unit: p.unit,
+    price: p.price,
+    tags,
+    isOffer: Boolean(p.promo),
+  };
+}
+
 export function SellerProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [profile] = useState(sellerProfileSeed);
+  const [profile, setProfile] = useState<SellerProfile>(sellerProfileSeed);
+  const [catalog, setCatalog] = useState<CatalogProduct[]>(catalogSeed);
   const [customers, setCustomers] = useState(customersSeed);
   const [orders, setOrders] = useState(ordersSeed);
   const [visitsToday, setVisitsToday] = useState(visitsTodaySeed);
@@ -88,21 +149,89 @@ export function SellerProvider({ children }: { children: ReactNode }) {
   const [opportunities] = useState(opportunitiesSeed);
   const [offers] = useState(offersSeed);
 
-  useEffect(() => {
-    const s = window.localStorage.getItem(SESSION_KEY);
-    setAuthenticated(s === "1");
-    setLoading(false);
+  const applySession = useCallback(async (accessToken: string) => {
+    const base = getApiBaseUrl();
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const [prRes, cuRes] = await Promise.all([
+      fetch(`${base}/products`, { headers }),
+      fetch(`${base}/customers`, { headers }),
+    ]);
+    if (prRes.ok) {
+      const rows = (await prRes.json()) as CatalogRow[];
+      setCatalog(rows.map(mapRowToCatalogProduct));
+    } else {
+      setCatalog(catalogSeed);
+    }
+    if (cuRes.ok) {
+      const crows = (await cuRes.json()) as CustomerApiRow[];
+      setCustomers(crows.map(mapApiToSellerCustomer));
+    } else {
+      setCustomers(customersSeed);
+    }
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    if (!email || !password) return;
-    window.localStorage.setItem(SESSION_KEY, "1");
-    setAuthenticated(true);
-  }, []);
+  useEffect(() => {
+    const token = window.localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const user = await apiFetchMe(token);
+        if (user.role !== "SELLER") {
+          window.localStorage.removeItem(TOKEN_KEY);
+          setAuthenticated(false);
+          return;
+        }
+        setProfile({
+          name: user.fullName,
+          email: user.email,
+          phone: sellerProfileSeed.phone,
+          zoneLabel: sellerProfileSeed.zoneLabel,
+        });
+        await applySession(token);
+        setAuthenticated(true);
+      } catch {
+        window.localStorage.removeItem(TOKEN_KEY);
+        setAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [applySession]);
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<string | null> => {
+      if (!email?.trim() || !password) return "Introduce email y contraseña";
+      try {
+        const { accessToken, user } = await apiLogin(email.trim(), password);
+        if (user.role !== "SELLER") {
+          return "Esta cuenta no es de vendedor.";
+        }
+        setProfile({
+          name: user.fullName,
+          email: user.email,
+          phone: sellerProfileSeed.phone,
+          zoneLabel: sellerProfileSeed.zoneLabel,
+        });
+        await applySession(accessToken);
+        window.localStorage.setItem(TOKEN_KEY, accessToken);
+        setAuthenticated(true);
+        return null;
+      } catch (e) {
+        return networkErrorMessage(e);
+      }
+    },
+    [applySession],
+  );
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(SESSION_KEY);
+    window.localStorage.removeItem(TOKEN_KEY);
     setAuthenticated(false);
+    setProfile(sellerProfileSeed);
+    setCatalog(catalogSeed);
+    setCustomers(customersSeed);
   }, []);
 
   const getCustomer = useCallback(
@@ -251,7 +380,7 @@ export function SellerProvider({ children }: { children: ReactNode }) {
     orders,
     visitsToday,
     followUps,
-    catalog: catalogSeed,
+    catalog,
     getCustomer,
     getOrdersForCustomer,
     getDraftForCustomer,

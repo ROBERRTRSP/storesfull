@@ -18,15 +18,15 @@ export default function AdminLoginPage() {
     }
   }, [authenticated, loading, router]);
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    const ok = login(email, password);
-    if (ok) {
-      router.replace("/admin/dashboard");
-    } else {
-      setError("Credenciales incorrectas. Use admin@demo.local / Admin1234");
+    const err = await login(email, password);
+    if (err) {
+      setError(err);
+      return;
     }
+    router.replace("/admin/dashboard");
   };
 
   if (loading) {
@@ -77,7 +77,9 @@ export default function AdminLoginPage() {
           >
             Entrar
           </button>
-          <p className="text-center text-xs text-slate-400">Demo: admin@demo.local / Admin1234</p>
+          <p className="text-center text-xs text-slate-400">
+            Cuenta API (tras seed): admin@demo.local / Admin1234
+          </p>
         </form>
         <div className="flex flex-wrap justify-center gap-3 text-sm">
           <Link href="/" className="text-slate-300 underline hover:text-white">

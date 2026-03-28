@@ -12,12 +12,10 @@ import {
 import {
   adminAlertsSeed,
   adminAuditSeed,
-  adminCustomersSeed,
   adminDeliveriesSeed,
   adminExpensesSeed,
   adminOrdersSeed,
   adminPaymentsSeed,
-  adminProductsSeed,
   adminPurchasesSeed,
   adminUsersSeed,
   dashboardKpisSeed,
@@ -35,13 +33,80 @@ import type {
   AdminUser,
   AlertState,
 } from "./types";
+import { apiFetchMe, apiLogin, getApiBaseUrl, networkErrorMessage, parseApiErrorMessage } from "@/lib/api";
 
-const SESSION_KEY = "ruta_admin_session";
+const TOKEN_KEY = "ruta_admin_access_token";
+
+type CatalogRow = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  unit: string;
+  promo?: string | null;
+  combo?: string | null;
+  sku?: string;
+  imageUrl?: string | null;
+  referenceCost?: number;
+  isActive?: boolean;
+  tags?: string[];
+};
+
+type CustomerRow = {
+  id: string;
+  businessName: string;
+  contactName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  zone?: string | null;
+  visitDay?: string | null;
+  creditLimit?: unknown;
+  status?: string;
+};
+
+function mapProductToAdmin(p: CatalogRow): AdminProduct {
+  const tags = [
+    ...(p.tags ?? []),
+    ...(p.promo ? [String(p.promo)] : []),
+    ...(p.combo ? [String(p.combo)] : []),
+  ].filter(Boolean);
+  return {
+    id: p.id,
+    name: p.name,
+    imageUrl: p.imageUrl || "https://placehold.co/120x120/e2e8f0/64748b?text=Prod",
+    department: p.category,
+    category: p.category,
+    sku: String(p.sku ?? p.id),
+    unit: p.unit,
+    salePrice: p.price,
+    refCost: Number(p.referenceCost ?? 0),
+    active: p.isActive !== false,
+    tags,
+  };
+}
+
+function mapCustomerToAdmin(c: CustomerRow): AdminCustomer {
+  return {
+    id: c.id,
+    businessName: c.businessName,
+    contactName: c.contactName ?? "",
+    phone: c.phone ?? "",
+    email: c.email ?? "",
+    zone: c.zone ?? "",
+    visitDay: c.visitDay ?? "",
+    sellerName: "—",
+    active: c.status !== "INACTIVE",
+    creditLimit: Number(c.creditLimit ?? 0),
+    balancePending: 0,
+    lastPurchase: null,
+  };
+}
 
 type AdminContextType = {
   authenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => boolean;
+  /** null si éxito; mensaje de error si falla */
+  login: (email: string, password: string) => Promise<string | null>;
   logout: () => void;
   kpis: typeof dashboardKpisSeed;
   customers: AdminCustomer[];
@@ -62,11 +127,28 @@ type AdminContextType = {
 
 const AdminContext = createContext<AdminContextType | null>(null);
 
+async function loadAdminCatalog(token: string): Promise<{ products: AdminProduct[]; customers: AdminCustomer[] }> {
+  const base = getApiBaseUrl();
+  const headers = { Authorization: `Bearer ${token}` };
+  const [prRes, cuRes] = await Promise.all([
+    fetch(`${base}/products`, { headers }),
+    fetch(`${base}/customers`, { headers }),
+  ]);
+  if (!prRes.ok) throw new Error(await parseApiErrorMessage(prRes));
+  if (!cuRes.ok) throw new Error(await parseApiErrorMessage(cuRes));
+  const productsJson = (await prRes.json()) as CatalogRow[];
+  const customersJson = (await cuRes.json()) as CustomerRow[];
+  return {
+    products: productsJson.map(mapProductToAdmin),
+    customers: customersJson.map(mapCustomerToAdmin),
+  };
+}
+
 export function AdminProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [customers] = useState(adminCustomersSeed);
-  const [products] = useState(adminProductsSeed);
+  const [customers, setCustomers] = useState<AdminCustomer[]>([]);
+  const [products, setProducts] = useState<AdminProduct[]>([]);
   const [orders] = useState(adminOrdersSeed);
   const [purchases] = useState(adminPurchasesSeed);
   const [deliveries] = useState(adminDeliveriesSeed);
@@ -77,23 +159,55 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [alerts, setAlerts] = useState(adminAlertsSeed);
 
   useEffect(() => {
-    const s = window.localStorage.getItem(SESSION_KEY);
-    setAuthenticated(s === "1");
-    setLoading(false);
+    const token = typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const user = await apiFetchMe(token);
+        if (user.role !== "ADMIN") {
+          window.localStorage.removeItem(TOKEN_KEY);
+          setAuthenticated(false);
+          return;
+        }
+        const data = await loadAdminCatalog(token);
+        setProducts(data.products);
+        setCustomers(data.customers);
+        setAuthenticated(true);
+      } catch {
+        window.localStorage.removeItem(TOKEN_KEY);
+        setAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    if (!email?.trim() || !password) return false;
-    const ok = email.trim().toLowerCase() === "admin@demo.local" && password === "Admin1234";
-    if (!ok) return false;
-    window.localStorage.setItem(SESSION_KEY, "1");
-    setAuthenticated(true);
-    return true;
+  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
+    if (!email?.trim() || !password) return "Introduce email y contraseña";
+    try {
+      const { accessToken, user } = await apiLogin(email.trim(), password);
+      if (user.role !== "ADMIN") {
+        return "Esta cuenta no es de administrador.";
+      }
+      const data = await loadAdminCatalog(accessToken);
+      setProducts(data.products);
+      setCustomers(data.customers);
+      window.localStorage.setItem(TOKEN_KEY, accessToken);
+      setAuthenticated(true);
+      return null;
+    } catch (e) {
+      return networkErrorMessage(e);
+    }
   }, []);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(SESSION_KEY);
+    window.localStorage.removeItem(TOKEN_KEY);
     setAuthenticated(false);
+    setProducts([]);
+    setCustomers([]);
   }, []);
 
   const getCustomer = useCallback(

@@ -47,6 +47,31 @@ async function main() {
     });
   }
 
+  const sellerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SELLER' } });
+  const deliveryRole = await prisma.role.findUniqueOrThrow({ where: { code: 'DELIVERY' } });
+  const sellerEmail = 'seller@demo.local';
+  if (!(await prisma.user.findUnique({ where: { email: sellerEmail } }))) {
+    await prisma.user.create({
+      data: {
+        email: sellerEmail,
+        fullName: 'Vendedor Demo',
+        passwordHash: await argon2.hash('Seller1234'),
+        roleId: sellerRole.id,
+      },
+    });
+  }
+  const driverEmail = 'driver@demo.local';
+  if (!(await prisma.user.findUnique({ where: { email: driverEmail } }))) {
+    await prisma.user.create({
+      data: {
+        email: driverEmail,
+        fullName: 'Conductor Demo',
+        passwordHash: await argon2.hash('Driver1234'),
+        roleId: deliveryRole.id,
+      },
+    });
+  }
+
   const customer = await prisma.customer.findFirst({ where: { email: customerEmail } });
   if (!customer) {
     await prisma.customer.create({
