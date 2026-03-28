@@ -40,11 +40,11 @@ export default function Home() {
   const [password, setPassword] = useState("Admin1234");
 
   const [clients, setClients] = useState<Client[]>([
-    { id: uid(), businessName: "Bodega La 9", contact: "Carlos" },
+    { id: "demo-client-1", businessName: "Bodega La 9", contact: "Carlos" },
   ]);
   const [products, setProducts] = useState<Product[]>([
-    { id: uid(), name: "Arroz 1kg", price: 2.5, refCost: 1.8 },
-    { id: uid(), name: "Aceite 1L", price: 4.2, refCost: 3.1 },
+    { id: "demo-prod-1", name: "Arroz 1kg", price: 2.5, refCost: 1.8 },
+    { id: "demo-prod-2", name: "Aceite 1L", price: 4.2, refCost: 3.1 },
   ]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [purchaseLines, setPurchaseLines] = useState<PurchaseLine[]>([]);
